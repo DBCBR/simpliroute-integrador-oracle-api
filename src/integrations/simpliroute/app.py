@@ -11,6 +11,32 @@ from .client import post_simpliroute, post_gnexum_update
 app = FastAPI(title="SimpliRoute Integration Service")
 
 
+@app.get("/health")
+async def health() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+@app.get("/health/live")
+async def live() -> JSONResponse:
+    return JSONResponse({"status": "alive"})
+
+
+@app.get("/health/ready")
+async def ready() -> JSONResponse:
+    """Verifica readiness mínima:
+    - presença de variáveis de ambiente essenciais (tokens)
+    - tarefa de polling inicializada
+    """
+    token_sr = os.getenv("SIMPLIR_ROUTE_TOKEN")
+    token_gn = os.getenv("GNEXUM_TOKEN")
+    polling_ok = getattr(app.state, "_polling_task", None) is not None
+
+    ready_ok = bool(polling_ok and (token_sr or token_gn))
+
+    status = "ready" if ready_ok else "not_ready"
+    return JSONResponse({"status": status, "polling_task": bool(polling_ok), "has_tokens": bool(token_sr or token_gn)})
+
+
 async def polling_task(interval_minutes: int):
     """Tarefa de polling simples (simulada).
 
