@@ -1,35 +1,32 @@
-﻿# Integrador SR  Integração SimpliRoute
+# Integrador SR — Integração SimpliRoute
 
-Projeto para implementar a integração entre o sistema IW (Gnexum) e o
-SimpliRoute conforme o PDD interno. Este repositório contém um serviço
-Python minimalista que fornece:
+Integração entre o sistema IW (Gnexum) e a plataforma SimpliRoute.
+Este repositório contém um serviço Python mínimo que implementa:
 
-- Um endpoint webhook para receber notificações do SimpliRoute.
-- Tarefas de polling configuráveis para obter registros do Gnexum.
-- Clientes HTTP e mapeadores mínimos para construir o payload conforme o PDD.
+- Endpoint webhook para receber notificações do SimpliRoute.
+- Tarefa de polling configurável para buscar registros no Gnexum.
+- Clientes HTTP e mapeadores para construir payloads conforme o PDD.
 
-Este README foca em como configurar, executar e testar o serviço localmente.
-
-**Importante:** credenciais e tokens não devem ser commitados. Use
-`settings/.env` (baseado em `settings/.env.example`) para suas variáveis.
+IMPORTANTE: não commite credenciais. Utilize `settings/.env` (a partir de
+`settings/.env.example`) para configurar tokens localmente.
 
 ---
 
-## Estrutura principal
+## Estrutura do repositório
 
-- `src/`  código fonte do serviço e integrações.
-- `settings/`  configuração e arquivo `config.yaml`.
-- `data/`  entradas/saídas e arquivos gerados (não commitados).
-- `tests/`  testes unitários.
+- `src/` — código fonte do serviço e integrações.
+- `settings/` — arquivo `config.yaml` e exemplo de variáveis de ambiente.
+- `data/` — arquivos de input/output e dados gerados (não versionados).
+- `tests/` — testes unitários.
 
 ---
 
 ## Requisitos
 
 - Python 3.11+
-- Dependências em `requirements.txt` (instale em um virtualenv)
+- Dependências listadas em `requirements.txt`.
 
-Instalar dependências:
+Recomendado: criar um virtualenv antes de instalar as dependências.
 
 ```powershell
 python -m venv .venv
@@ -39,75 +36,74 @@ pip install -r requirements.txt
 
 ---
 
-## Configuração
+## Configuração local
 
-1. Copie o exemplo de variáveis:
+1. Copie o arquivo de exemplo de variáveis de ambiente:
 
 ```powershell
 copy settings\.env.example settings\.env
 ```
 
-2. Preencha `settings/.env` com os tokens (não commit). O arquivo
-   `Pendencias.txt` contém tokens locais  NÃO commitá-los. Use-os apenas
-   para configurar localmente.
+2. Preencha `settings/.env` com os tokens necessários (não commite este
+   arquivo). O arquivo `Pendencias.txt` contém tokens locais — mantenha
+   este arquivo fora do controle de versão.
 
 ---
 
-## Executando localmente (desenvolvimento)
-
-Com as dependências instaladas e `settings/.env` configurado:
+## Executando em desenvolvimento
 
 ```powershell
-# rodar a API (modo desenvolvimento)
+# executar a API com uvicorn
 python -m uvicorn src.integrations.simpliroute.app:app --host 0.0.0.0 --port 8000
 ```
 
-O webhook estará disponível em `http://localhost:8000/webhook/simpliroute`.
+O webhook ficará disponível em `http://localhost:8000/webhook/simpliroute`.
 
 ---
 
-## Docker
+## Docker (desenvolvimento)
 
-Build e subir com docker-compose (usa `settings/.env`):
+O projeto inclui `Dockerfile` e `docker-compose.yml`. Para subir o serviço:
 
 ```powershell
 docker-compose build
 docker-compose up -d
 ```
 
-Para parar e remover:
+Parar e remover:
 
 ```powershell
 docker-compose down
 ```
 
+OBS: o `docker-compose.yml` usa `settings/.env` como `env_file`. Não
+commite variáveis sensíveis.
+
 ---
 
 ## Testes
 
-Executar a suíte de testes com pytest:
+Executar a suíte de testes com `pytest`:
 
 ```powershell
 pytest -q
 ```
 
-Os testes adicionados cobrem o endpoint webhook básico e a importação do
-pacote.
+---
+
+## Fluxo de contribuição
+
+- Crie branches a partir de `dev` para cada feature: `feature/<nome>`.
+- Faça merge das features em `dev` após revisão; apague a branch de
+  feature depois do merge (o `dev` permanece até aprovação para `main`).
 
 ---
 
-## Contribuição
+## Referências
 
-- Crie uma branch a partir de `dev` para cada alteração (`feature/<nome>`).
-- Faça merge da feature em `dev` e, após validação, o branch de feature
-  deve ser excluído (seguindo o fluxo definido no repositório).
+- Documento PDD: `📄 PDD - Integração SimpliRoute (IW).md` (detalhes funcionais).
 
 ---
 
-## Contato
-
-Para dúvidas de negócio/projeto consulte o PDD: ` PDD - Integração SimpliRoute (IW).md`.
-
----
-
-Licença: revisar com a equipe (nenhuma licença definida no repositório).
+Se quiser, posso adicionar um README menor em `src/integrations/simpliroute/`
+com exemplos de payload e instruções específicas da integração.
