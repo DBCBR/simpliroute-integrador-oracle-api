@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-# Inserir `src/` na frente do sys.path para que imports como
-# `from states.init_state import init` resolvam corretamente
+# Adiciona a pasta `src` ao PYTHONPATH para que imports como
+# `from states.init_state import ...` funcionem durante os testes.
 SRC_DIR = ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
