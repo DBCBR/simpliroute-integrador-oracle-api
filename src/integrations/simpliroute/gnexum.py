@@ -5,9 +5,10 @@ import httpx
 
 # Config via env
 GNEXUM_URL = os.getenv("GNEXUM_API_URL")
-GNEXUM_TOKEN = os.getenv("GNEXUM_TOKEN")
 USE_REAL_GNEXUM = os.getenv("USE_REAL_GNEXUM", "false").lower() in ("1", "true", "yes")
 logger = logging.getLogger(__name__)
+
+from .token_manager import get_token, login_and_store
 
 
 async def fetch_items_for_record(record_id: Any, timeout: int = 8) -> List[Dict[str, Any]]:
@@ -30,8 +31,13 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8) -> List[Dict[
         ]
 
     headers = {"Content-Type": "application/json"}
-    if GNEXUM_TOKEN:
-        headers["Authorization"] = f"Bearer {GNEXUM_TOKEN}"
+    # obter token através do token manager (pode efetuar login se necessário)
+    try:
+        token = await get_token()
+    except Exception:
+        token = None
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     # Tentar várias formas de chamada para acomodar contrato desconhecido:
     # 1) GET direto em GNEXUM_URL
@@ -74,6 +80,23 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8) -> List[Dict[
                 except Exception as e:
                     logger.debug("Gnexum POST failed: %s", e)
                     continue
+                if resp.status_code == 401:
+                    # token inválido/expirado: tentar login automático e repetir uma vez
+                    logger.debug("Gnexum: recebeu 401, tentando login automático e re-tentar")
+                    await login_and_store()
+                    # recarregar token
+                    try:
+                        token = await get_token()
+                        if token:
+                            headers["Authorization"] = f"Bearer {token}"
+                    except Exception:
+                        pass
+                    try:
+                        resp = await client.post(GNEXUM_URL, json=b, headers=headers)
+                    except Exception as e:
+                        logger.debug("Gnexum retry POST failed: %s", e)
+                        continue
+
                 if resp.status_code in (200, 201):
                     try:
                         data = resp.json()
@@ -93,6 +116,21 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8) -> List[Dict[
                 except Exception as e:
                     logger.debug("Gnexum GET failed: %s", e)
                     continue
+                if resp.status_code == 401:
+                    logger.debug("Gnexum: GET recebeu 401, tentando login e re-tentar")
+                    await login_and_store()
+                    try:
+                        token = await get_token()
+                        if token:
+                            headers["Authorization"] = f"Bearer {token}"
+                    except Exception:
+                        pass
+                    try:
+                        resp = await client.get(url, headers=headers)
+                    except Exception as e:
+                        logger.debug("Gnexum retry GET failed: %s", e)
+                        continue
+
                 if resp.status_code in (200, 201):
                     try:
                         data = resp.json()
