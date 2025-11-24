@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from .mapper import build_visit_payload
 from .client import post_simpliroute, post_gnexum_update
+from .gnexum import fetch_items_for_record
 
 
 async def polling_task(interval_minutes: int):
@@ -25,6 +26,12 @@ async def polling_task(interval_minutes: int):
             # Placeholder: simular busca de registros e envio ao SimpliRoute
             print("[polling] executando consulta ao Gnexum (simulada)")
             sample = {"tpregistro": 2, "idregistro": 123, "endereco": "Rua Exemplo, 123", "eventdate": "2025-11-21"}
+            # tentar popular items via Gnexum (stub ou real, dependendo de env)
+            try:
+                sample_items = await fetch_items_for_record(sample.get("idregistro"))
+                sample["items"] = sample_items
+            except Exception:
+                sample["items"] = []
             payload = build_visit_payload(sample)
             resp = await post_simpliroute(payload)
             # resp pode ser None em ambiente de teste
@@ -32,7 +39,13 @@ async def polling_task(interval_minutes: int):
             print(f"[polling] envio SR status: {status}")
         except Exception as e:
             print(f"[polling] erro: {e}")
-        await asyncio.sleep(interval_minutes * 60)
+        # aguardar intervalo, tratar cancelamento para shutdown gracioso
+        try:
+            await asyncio.sleep(interval_minutes * 60)
+        except asyncio.CancelledError:
+            # Cancelamento esperado durante shutdown; encerrar o loop sem traceback
+            print("[polling] task cancelada — encerrando polling")
+            break
 
 
 @asynccontextmanager
@@ -92,13 +105,25 @@ async def ready() -> JSONResponse:
 @app.post("/webhook/simpliroute")
 async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     try:
+        # validar JSON
         payload = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
+    # Validação opcional do token do webhook: se configurado, exige header Authorization: Token <token>
+    expected = os.getenv("SIMPLIROUTE_WEBHOOK_TOKEN") or os.getenv("SIMPLIR_ROUTE_TOKEN") or os.getenv("SIMPLIROUTE_TOKEN")
+    if expected:
+        auth_hdr = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+        # suportar formas: 'Token <v>' ou 'Bearer <v>'
+        token_val = auth_hdr.replace("Bearer ", "").replace("Token ", "").strip()
+        if token_val != expected:
+            return JSONResponse({"error": "unauthorized webhook"}, status_code=401)
+
     # Persistir o webhook recebido (mínimo: gravar em arquivo)
     os.makedirs("data/work/webhooks", exist_ok=True)
-    filename = f"data/work/webhooks/webhook_{int(asyncio.get_event_loop().time())}.json"
+    import time
+
+    filename = f"data/work/webhooks/webhook_{int(time.time())}.json"
     try:
         with open(filename, "w", encoding="utf-8") as f:
             import json
