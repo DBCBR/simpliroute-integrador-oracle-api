@@ -318,22 +318,38 @@ async def main():
         print('[DRY-RUN] No records found; exiting')
         return
 
-    # processar cada registro: montar payload e simular POST
-    for r in records:
-        rid = _extract_record_id(r) or r.get('idregistro') or r.get('id') or 'unknown'
+    # processar registros: se os registros vierem com ID_ATENDIMENTO, agrupar por atendimento
+    grouped = {}
+    key_field = None
+    if records and isinstance(records, list) and any(isinstance(r, dict) and ('ID_ATENDIMENTO' in r or 'idregistro' in r) for r in records):
+        # agrupar por ID_ATENDIMENTO ou idregistro
+        for r in records:
+            rid = r.get('ID_ATENDIMENTO') or r.get('idregistro') or r.get('id') or 'unknown'
+            grouped.setdefault(rid, []).append(r)
+        key_field = 'ID_ATENDIMENTO'
+    else:
+        # cada registro é tratado isoladamente
+        for r in records:
+            rid = _extract_record_id(r) or r.get('idregistro') or r.get('id') or 'unknown'
+            grouped.setdefault(rid, []).append(r)
+
+    for rid, rows in grouped.items():
+        # tentar buscar items detalhados para o atendimento (se aplicável)
         try:
             items = await fetch_items_for_record(rid)
         except Exception as e:
             print(f"[DRY-RUN] failed to fetch items for {rid}: {e}")
             items = []
 
-        # montar objeto similar ao que o mapper espera
+        # montar um sample agregando as linhas do atendimento
+        first = rows[0] if rows else {}
         sample = {
-            'tpregistro': r.get('tpregistro') or r.get('tp') or 2,
+            'tpregistro': first.get('tpregistro') or first.get('TPREGISTRO') or 2,
             'idregistro': rid,
-            'endereco': r.get('endereco') or r.get('address') or r.get('rua') or None,
-            'eventdate': r.get('eventdate') or r.get('planned_date') or r.get('date') or None,
-            'items': items,
+            'endereco': first.get('ENDERECO') or first.get('endereco') or first.get('address') or None,
+            'eventdate': first.get('eventdate') or first.get('planned_date') or first.get('date') or None,
+            # combinar rows como items caso items vindos do Gnexum representem sub-itens
+            'items': items or rows,
         }
 
         payload = build_visit_payload(sample)

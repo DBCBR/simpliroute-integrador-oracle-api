@@ -24,16 +24,26 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     - `items` convertido para o shape esperado pela API
     - adiciona `properties.source` e `properties.source_ident` para rastreabilidade
     """
-    tp = int(record.get("tpregistro", 1))
-    # Title: prefer explicit title, else idregistro, else fallback
-    if record.get("title"):
-        title = str(record.get("title"))
-    elif record.get("idregistro"):
-        title = f"visit-{record.get('idregistro')}"
+    # suportar chaves vindas do Gnexum que podem estar em CAIXA ALTA
+    def _get(k, *alts, default=None):
+        for key in (k,) + alts:
+            if key in record and record.get(key) is not None:
+                return record.get(key)
+        return default
+
+    tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
+
+    # Title: prefer explicit title, else patient name, else idregistro/ID_ATENDIMENTO, else fallback
+    if _get("title"):
+        title = str(_get("title"))
+    elif _get("NOME_PACIENTE", "nome_paciente"):
+        title = f"visit-{_get('NOME_PACIENTE', 'nome_paciente')}"
+    elif _get("idregistro") or _get("ID_ATENDIMENTO"):
+        title = f"visit-{_get('idregistro') or _get('ID_ATENDIMENTO')}"
     else:
         title = "visit"
 
-    address = record.get("endereco_geolocalizacao") or record.get("endereco") or ""
+    address = _get("endereco_geolocalizacao") or _get("ENDERECO") or _get("endereco") or ""
 
     payload: Dict[str, Any] = {
         "title": title,
@@ -43,7 +53,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # planned_date if present (preferred) or from eventdate
-    pd = record.get("planned_date") or record.get("eventdate")
+    pd = _get("planned_date") or _get("eventdate") or _get("EVENTDATE")
     try:
         if isinstance(pd, (datetime, date)):
             payload["planned_date"] = pd.strftime("%Y-%m-%d")
@@ -53,28 +63,30 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         pass
 
     # loads and duration
-    payload["load"] = float(record.get("load") or record.get("volume") or 0.0)
-    payload["load_2"] = float(record.get("load_2") or 0.0)
-    payload["load_3"] = float(record.get("load_3") or 0.0)
+    payload["load"] = float(_get("load") or _get("volume") or 0.0)
+    payload["load_2"] = float(_get("load_2") or 0.0)
+    payload["load_3"] = float(_get("load_3") or 0.0)
 
     # Duration (service time) in HH:MM:SS when provided or fallback
-    duration = record.get("duration")
+    duration = _get("duration")
     if duration is None:
         # allow 'service_time' or default 0
-        duration = record.get("service_time") or 0
+        duration = _get("service_time") or 0
     payload["duration"] = _minutes_to_hhmmss(duration)
 
     # Items: converter para o formato esperado pela API de visits.items
-    rows = record.get("items") or []
+    rows = record.get("items") or record.get("rows") or record.get("ITEMS") or record.get("items") or []
     items = []
     for r in rows:
+        # suportar campos vindos do Gnexum
+        item_title = r.get("title") or r.get("nome") or r.get("ESPECIALIDADE") or r.get("TIPOVISITA") or "item"
         items.append({
-            "title": r.get("title") or r.get("nome") or "item",
+            "title": item_title,
             "load": float(r.get("load") or 0.0),
             "load_2": float(r.get("load_2") or 0.0),
             "load_3": float(r.get("load_3") or 0.0),
-            "reference": r.get("reference") or r.get("ref") or "",
-            "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0),
+            "reference": r.get("reference") or r.get("ref") or r.get("ID_ATENDIMENTO") or r.get("ID") or "",
+            "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 1.0),
             "notes": r.get("notes", ""),
         })
     payload["items"] = items
