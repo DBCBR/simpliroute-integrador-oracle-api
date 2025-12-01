@@ -14,7 +14,6 @@ from fastapi.responses import JSONResponse
 from .mapper import build_visit_payload
 from .client import post_simpliroute, post_gnexum_update
 from .gnexum import fetch_items_for_record
-from . import token_manager
 
 
 async def polling_task(interval_minutes: int):
@@ -62,25 +61,6 @@ async def lifespan(app: FastAPI):
 
     # iniciar tarefa em background
     app.state._polling_task = asyncio.create_task(polling_task(interval))
-    # token refresh task: chama periodicamente token_manager.get_token() para garantir token válido
-    try:
-        refresh_interval = int(os.getenv("GNEXUM_TOKEN_REFRESH_INTERVAL", 300))
-    except Exception:
-        refresh_interval = 300
-    async def _token_refresh_loop():
-        while True:
-            try:
-                # get_token fará login automático se necessário
-                await token_manager.get_token()
-            except Exception as e:
-                print(f"[token_refresh] erro: {e}")
-            try:
-                await asyncio.sleep(refresh_interval)
-            except asyncio.CancelledError:
-                print("[token_refresh] cancelado — encerrando")
-                break
-
-    app.state._token_refresh_task = asyncio.create_task(_token_refresh_loop())
     try:
         yield
     finally:
@@ -89,13 +69,6 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await task
-            except Exception:
-                pass
-        t2 = getattr(app.state, "_token_refresh_task", None)
-        if t2:
-            t2.cancel()
-            try:
-                await t2
             except Exception:
                 pass
 
