@@ -192,32 +192,73 @@ async def fetch_records_list(max_records=10, timeout=8):
                         continue
                 if resp.status_code in (200, 201):
                     try:
-                        ctype = resp.headers.get('Content-Type', '') or resp.headers.get('content-type', '')
-                        # Se for CSV, parse como CSV
-                        if 'csv' in ctype.lower() or (isinstance(resp.text, str) and '\n' in resp.text and ',' in resp.text.split('\n', 1)[0]):
-                            try:
-                                txt = resp.text
-                                # suportar BOM
-                                if txt.startswith('\ufeff'):
-                                    txt = txt.encode('utf-8').decode('utf-8-sig')
-                                from io import StringIO
-                                reader = csv.DictReader(StringIO(txt))
-                                rows = [r for r in reader]
-                                if rows:
-                                    return rows[:max_records]
-                            except Exception as e:
-                                print(f"[DRY-RUN] Gnexum CSV parse error: {e}")
-                                continue
-
-                        # tentar JSON como antes
+                        # A API pode devolver diretamente uma lista/objeto com items
                         data = resp.json()
                         rows = []
                         if isinstance(data, list):
                             rows = data
                         elif isinstance(data, dict):
                             rows = data.get('data') or data.get('rows') or data.get('items') or []
+
+                        # Se não vierem rows, o Gnexum pode retornar um endpoint para consumo
+                        def _is_url(s: str) -> bool:
+                            try:
+                                return bool(re.match(r"^https?://", str(s)))
+                            except Exception:
+                                return False
+
+                        def _find_url(obj):
+                            # procura chaves conhecidas
+                            if not isinstance(obj, dict):
+                                return None
+                            for k in ('endpoint', 'url', 'href', 'location', 'data_url'):
+                                v = obj.get(k)
+                                if isinstance(v, str) and _is_url(v):
+                                    return v
+                            # procurar em valores qualquer string que seja URL
+                            for v in obj.values():
+                                if isinstance(v, str) and _is_url(v):
+                                    return v
+                            return None
+
                         if rows:
                             return rows[:max_records]
+
+                        # tentar localizar um endpoint retornado para consumir
+                        endpoint_url = None
+                        if isinstance(data, str) and _is_url(data):
+                            endpoint_url = data
+                        elif isinstance(data, dict):
+                            endpoint_url = _find_url(data)
+
+                        if endpoint_url:
+                            # seguir o endpoint e tentar obter os registros
+                            try:
+                                # tentar GET primeiro, se falhar tentar POST
+                                follow = await client.get(endpoint_url, headers=headers)
+                                if follow.status_code in (200, 201):
+                                    follow_data = follow.json()
+                                    if isinstance(follow_data, list):
+                                        return follow_data[:max_records]
+                                    if isinstance(follow_data, dict):
+                                        follow_rows = follow_data.get('data') or follow_data.get('rows') or follow_data.get('items') or []
+                                        if follow_rows:
+                                            return follow_rows[:max_records]
+                                # tentar POST no endpoint
+                                follow = await client.post(endpoint_url, json={'limit': max_records}, headers=headers)
+                                if follow.status_code in (200, 201):
+                                    follow_data = follow.json()
+                                    if isinstance(follow_data, list):
+                                        return follow_data[:max_records]
+                                    if isinstance(follow_data, dict):
+                                        follow_rows = follow_data.get('data') or follow_data.get('rows') or follow_data.get('items') or []
+                                        if follow_rows:
+                                            return follow_rows[:max_records]
+                            except Exception as e:
+                                print('[DRY-RUN] failed to follow endpoint returned by Gnexum:', e)
+                    except Exception as e:
+                        print(f"[DRY-RUN] Gnexum POST parse error: {e}")
+                        continue
                     except Exception as e:
                         print(f"[DRY-RUN] Gnexum POST parse error: {e}")
                         continue
