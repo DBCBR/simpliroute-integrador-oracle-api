@@ -192,6 +192,24 @@ async def fetch_records_list(max_records=10, timeout=8):
                         continue
                 if resp.status_code in (200, 201):
                     try:
+                        ctype = resp.headers.get('Content-Type', '') or resp.headers.get('content-type', '')
+                        # Se for CSV, parse como CSV
+                        if 'csv' in ctype.lower() or (isinstance(resp.text, str) and '\n' in resp.text and ',' in resp.text.split('\n', 1)[0]):
+                            try:
+                                txt = resp.text
+                                # suportar BOM
+                                if txt.startswith('\ufeff'):
+                                    txt = txt.encode('utf-8').decode('utf-8-sig')
+                                from io import StringIO
+                                reader = csv.DictReader(StringIO(txt))
+                                rows = [r for r in reader]
+                                if rows:
+                                    return rows[:max_records]
+                            except Exception as e:
+                                print(f"[DRY-RUN] Gnexum CSV parse error: {e}")
+                                continue
+
+                        # tentar JSON como antes
                         data = resp.json()
                         rows = []
                         if isinstance(data, list):
