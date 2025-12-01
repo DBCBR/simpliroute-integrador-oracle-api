@@ -13,7 +13,7 @@ Uso (PowerShell):
 $env:USE_REAL_GNEXUM='1'
 $env:RUN_DURATION_SECONDS='20'
 $env:RUN_MAX_RECORDS='5'  # opcional, número máximo de registros a processar por execução
-python .\scripts\run_polling_inprocess.py
+python ./scripts/run_polling_inprocess.py
 ```
 
 Observação: este script NÃO envia nada ao SimpliRoute. Ele grava um artefato por visita
