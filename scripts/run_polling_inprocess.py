@@ -37,6 +37,7 @@ sys.path.insert(0, proj_root)
 from src.integrations.simpliroute import client as sr_client
 from src.integrations.simpliroute.mapper import build_visit_payload
 from src.integrations.simpliroute.gnexum import fetch_items_for_record
+from src.integrations.simpliroute.token_manager import login_and_store, get_token
 from src.core.config import load_config
 
 import httpx
@@ -161,6 +162,7 @@ async def fetch_records_list(max_records=10, timeout=8):
                 {},
             ]
             resp = None
+            retried_after_login = False
             for b in bodies:
                 try:
                     resp = await client.post(url, json=b, headers=headers)
@@ -170,8 +172,24 @@ async def fetch_records_list(max_records=10, timeout=8):
                 if not resp:
                     continue
                 if resp.status_code == 401:
-                    print('[DRY-RUN] Gnexum returned 401 for list POST; check GNEXUM_TOKEN')
-                    # não forçar login aqui — o token manager é usado por outras chamadas
+                    print('[DRY-RUN] Gnexum returned 401 for list POST; attempting login_and_store to refresh token')
+                    # tentar login automático usando token_manager e re-tentar uma vez
+                    try:
+                        await login_and_store()
+                        new_token = await get_token()
+                        if new_token:
+                            headers['Authorization'] = f"Bearer {new_token}"
+                            retried_after_login = True
+                            # re-tentar este body com token atualizado
+                            try:
+                                resp = await client.post(url, json=b, headers=headers)
+                            except Exception as e:
+                                print(f"[DRY-RUN] Gnexum retry POST failed: {e}")
+                                resp = None
+                    except Exception as e:
+                        print('[DRY-RUN] login_and_store failed:', e)
+                    if not resp:
+                        continue
                 if resp.status_code in (200, 201):
                     try:
                         data = resp.json()
