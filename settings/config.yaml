@@ -9,9 +9,11 @@ output_dir: data/output
 max_retries: 3
 # Configurações específicas para a integração com SimpliRoute / Gnexum
 simpliroute:
-	api_base: "https://api.simpliroute.com"  # pode ser sobrescrito por env
-	webhook_path: "/webhook/simpliroute"
-	polling_interval_minutes: 60
-	# Tokens e credenciais devem vir de variáveis de ambiente (ver .env.example)
-	token_env_var: "SIMPLIR_ROUTE_TOKEN"
-	gnexum_token_env_var: "GNEXUM_TOKEN"
+  api_base: "https://api.simpliroute.com"  # pode ser sobrescrito por env
+  webhook_path: "/webhook/simpliroute"
+  polling_interval_minutes: 60
+  # Tokens e credenciais devem vir de variáveis de ambiente (ver .env.example)
+  token_env_var: "SIMPLIR_ROUTE_TOKEN"
+  gnexum_token_env_var: "GNEXUM_TOKEN"
+  # Quando em dry-run, controla se os payloads gerados devem ser salvos em disco
+  save_payloads: true

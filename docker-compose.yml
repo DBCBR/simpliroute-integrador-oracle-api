@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   simpliroute:
     build: .
@@ -10,9 +9,13 @@ services:
       - ./settings/.env
     volumes:
       - ./:/app:ro
+      - ./settings:/app/settings:rw
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      # Use readiness endpoint so the container only reports healthy
+      # after the app completed startup and required background tasks are up.
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ready || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 10s
+      # Give the app more time to start and the polling task to initialize
+      start_period: 30s
