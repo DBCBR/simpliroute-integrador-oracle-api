@@ -153,19 +153,44 @@ async def fetch_records_list(max_records=10, timeout=8):
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                rows = []
-                if isinstance(data, list):
-                    rows = data
-                elif isinstance(data, dict):
-                    rows = data.get('data') or data.get('rows') or data.get('items') or []
-                # limitar número de registros
-                return rows[:max_records]
+            # O Gnexum funciona via POST para buscas — tentar POST com payloads candidatos
+            bodies = [
+                {"limit": max_records},
+                {"max": max_records},
+                {"page": 1, "per_page": max_records},
+                {},
+            ]
+            resp = None
+            for b in bodies:
+                try:
+                    resp = await client.post(url, json=b, headers=headers)
+                except Exception as e:
+                    print(f"[DRY-RUN] Gnexum POST attempt failed: {e}")
+                    resp = None
+                if not resp:
+                    continue
+                if resp.status_code == 401:
+                    print('[DRY-RUN] Gnexum returned 401 for list POST; check GNEXUM_TOKEN')
+                    # não forçar login aqui — o token manager é usado por outras chamadas
+                if resp.status_code in (200, 201):
+                    try:
+                        data = resp.json()
+                        rows = []
+                        if isinstance(data, list):
+                            rows = data
+                        elif isinstance(data, dict):
+                            rows = data.get('data') or data.get('rows') or data.get('items') or []
+                        if rows:
+                            return rows[:max_records]
+                    except Exception as e:
+                        print(f"[DRY-RUN] Gnexum POST parse error: {e}")
+                        continue
+            # se nada funcionou, avisar e retornar lista vazia (cairá no stub)
+            if resp is not None:
+                print(f"[DRY-RUN] Gnexum list POST attempts completed, last status={resp.status_code}")
             else:
-                print(f"[DRY-RUN] Gnexum list request returned {resp.status_code}; falling back to stub")
-                return []
+                print('[DRY-RUN] Gnexum list POST attempts failed (no response)')
+            return []
     except Exception as e:
         print('[DRY-RUN] fetch_records_list error:', e)
         return []
