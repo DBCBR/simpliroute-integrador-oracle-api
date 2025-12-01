@@ -1,0 +1,24 @@
+{
+  "title": "visit-123",
+  "address": "Rua Exemplo, 123",
+  "properties": {
+    "source": "gnexum",
+    "source_ident": "123"
+  },
+  "planned_date": "2025-11-21",
+  "load": 0.0,
+  "load_2": 0.0,
+  "load_3": 0.0,
+  "duration": "00:00:00",
+  "items": [
+    {
+      "title": "ITEM-EXEMPLO",
+      "load": 0.0,
+      "load_2": 0.0,
+      "load_3": 0.0,
+      "reference": "stub",
+      "quantity_planned": 1.0,
+      "notes": ""
+    }
+  ]
+}
