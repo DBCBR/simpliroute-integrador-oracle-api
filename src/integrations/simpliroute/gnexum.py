@@ -20,17 +20,10 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8) -> List[Dict[
     """
     # modo stub por padrão (desenvolvimento)
     if not USE_REAL_GNEXUM or not GNEXUM_URL:
-        # exemplo simples — a aplicação deve preencher real quando disponível
-        return [
-            {
-                "title": "ITEM-EXEMPLO",
-                "quantity_planned": 1.0,
-                "load": 0.0,
-                "reference": "stub",
-            }
-        ]
+        # modo stub seguro: não retornar items falsos — deixar lista vazia
+        return []
 
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json; charset=utf-8"}
     # obter token através do token manager (pode efetuar login se necessário)
     try:
         token = await get_token()

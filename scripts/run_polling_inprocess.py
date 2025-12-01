@@ -102,15 +102,23 @@ async def fake_post_simpliroute(route_payload):
 
     # gravar artefato simulando a requisição ao SR (headers + body)
     try:
+        # normalize and produce UTF-8 JSON for the simulated artifact
+        try:
+            from core.encoding import dumps_utf8
+            body_bytes = dumps_utf8(route_payload)
+            body_json = json.loads(body_bytes.decode('utf-8'))
+        except Exception:
+            body_json = route_payload
+
         simulated = {
             'ts': ts,
             'target_url': os.getenv('SIMPLIROUTE_API_BASE', _CFG.get('simpliroute', {}).get('api_base', 'https://api.simpliroute.com')) + '/visits',
             'method': 'POST',
             'headers': {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
                 'Authorization': f"Bearer {os.getenv('SIMPLIR_ROUTE_TOKEN') or ''}",
             },
-            'body': route_payload,
+            'body': body_json,
         }
         sim_path = os.path.join(sim_dir, fname)
         with open(sim_path, 'w', encoding='utf-8') as sf:
