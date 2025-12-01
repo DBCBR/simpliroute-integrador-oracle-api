@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from .mapper import build_visit_payload
 from .client import post_simpliroute, post_gnexum_update
 from .gnexum import fetch_items_for_record
+from .token_manager import get_token, login_and_store
 
 
 async def polling_task(interval_minutes: int):
@@ -58,6 +59,26 @@ async def lifespan(app: FastAPI):
         interval = int(cfg.get("simpliroute", {}).get("polling_interval_minutes", 60))
     except Exception:
         interval = int(os.getenv("POLLING_INTERVAL_MINUTES", 60))
+
+    # garantir que o token do Gnexum esteja atualizado ao iniciar
+    try:
+        # tenta obter token válido (get_token fará login se necessário)
+        tok = None
+        try:
+            tok = await get_token()
+        except Exception:
+            # se get_token não estiver disponível de forma assíncrona, tentar login
+            try:
+                await login_and_store()
+            except Exception:
+                pass
+        if tok:
+            print("[startup] GNEXUM token present/updated")
+        else:
+            print("[startup] GNEXUM token not available after login attempt")
+    except Exception:
+        # garantir que falhas no refresh de token não impeçam o app de subir
+        print("[startup] warning: failed to refresh GNEXUM token")
 
     # iniciar tarefa em background
     app.state._polling_task = asyncio.create_task(polling_task(interval))
