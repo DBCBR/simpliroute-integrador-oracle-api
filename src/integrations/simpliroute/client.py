@@ -36,7 +36,59 @@ async def post_simpliroute(route_payload: Dict[str, Any]) -> Optional[httpx.Resp
         body = [route_payload]
 
     try:
-        content = dumps_utf8(body)
+        # prune body to only fields expected by SimpliRoute to avoid sending extra info
+        allowed_visit_fields = [
+            "order","tracking_id","status","title","address","latitude","longitude",
+            "load","load_2","load_3","window_start","window_end","window_start_2","window_end_2",
+            "duration","contact_name","contact_phone","contact_email","reference","notes",
+            "skills_required","skills_optional","tags","planned_date","programmed_date","route",
+            "estimated_time_arrival","estimated_time_departure","checkin_time","checkout_time",
+            "checkout_latitude","checkout_longitude","checkout_comment","checkout_observation",
+            "signature","pictures","created","modified","eta_predicted","eta_current",
+            "priority","has_alert","priority_level","extra_field_values","geocode_alert",
+            "visit_type","current_eta","fleet","seller","properties","items","on_its_way"
+        ]
+
+        allowed_item_fields = [
+            "id","title","status","load","load_2","load_3","reference","visit",
+            "notes","quantity_planned","quantity_delivered"
+        ]
+
+        def prune_visit(v: dict) -> dict:
+            out = {}
+            for k in allowed_visit_fields:
+                if k in v and v[k] is not None:
+                    # copy only allowed keys
+                    out[k] = v[k]
+            # prune properties subkeys if present: keep only expected property keys
+            if "properties" in out and isinstance(out["properties"], dict):
+                props = out["properties"]
+                kept = {k: props[k] for k in props if k in ("PROFISSIONAL", "ESPECIALIDADE", "PERIODICIDADE")}
+                if kept:
+                    out["properties"] = kept
+                else:
+                    out.pop("properties", None)
+            # prune items
+            if "items" in out and isinstance(out["items"], list):
+                items = []
+                for it in out["items"]:
+                    if not isinstance(it, dict):
+                        continue
+                    newi = {k: it[k] for k in allowed_item_fields if k in it and it[k] is not None}
+                    if newi:
+                        items.append(newi)
+                if items:
+                    out["items"] = items
+                else:
+                    out.pop("items", None)
+            return out
+
+        if isinstance(body, list):
+            pruned = [prune_visit(v) for v in body]
+        else:
+            pruned = prune_visit(body)
+
+        content = dumps_utf8(pruned)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(f"{base.rstrip('/')}/v1/routes/visits/", content=content, headers=headers)
         return resp

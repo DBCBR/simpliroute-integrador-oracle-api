@@ -218,3 +218,6 @@ cython_debug/
 📄 PDD - Integração SimpliRoute (IW).md
 PDD - Integração SimpliRoute (IW).md
 PDD*.md
+
+# ignore generated sample payloads and simulated requests
+data/output/
