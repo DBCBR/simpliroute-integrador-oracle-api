@@ -239,6 +239,21 @@ async def main():
             pass
 
     # buscar lista de registros
+    # garantir token válido no início (se estiver usando Gnexum real)
+    try:
+        use_real = os.getenv('USE_REAL_GNEXUM', 'false').lower() in ('1', 'true', 'yes')
+        if use_real:
+            try:
+                tok = await get_token()
+                if tok:
+                    print('[DRY-RUN] GNEXUM token available at startup')
+                else:
+                    print('[DRY-RUN] GNEXUM token not available at startup; attempted login')
+            except Exception as e:
+                print('[DRY-RUN] warning: get_token/login failed at startup:', e)
+    except Exception:
+        pass
+
     records = await fetch_records_list(max_records=max_records)
     if not records:
         print('[DRY-RUN] No records found; exiting')
