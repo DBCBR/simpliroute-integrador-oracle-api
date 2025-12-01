@@ -53,7 +53,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # planned_date if present (preferred) or from eventdate
-    pd = _get("planned_date") or _get("eventdate") or _get("EVENTDATE")
+    # suportar campo DT_VISITA vindo do Gnexum
+    pd = _get("planned_date") or _get("eventdate") or _get("EVENTDATE") or _get("DT_VISITA") or _get("dt_visita")
     try:
         if isinstance(pd, (datetime, date)):
             payload["planned_date"] = pd.strftime("%Y-%m-%d")

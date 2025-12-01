@@ -347,7 +347,8 @@ async def main():
             'tpregistro': first.get('tpregistro') or first.get('TPREGISTRO') or 2,
             'idregistro': rid,
             'endereco': first.get('ENDERECO') or first.get('endereco') or first.get('address') or None,
-            'eventdate': first.get('eventdate') or first.get('planned_date') or first.get('date') or None,
+            # suportar DT_VISITA do Gnexum como data planejada
+            'eventdate': first.get('DT_VISITA') or first.get('dt_visita') or first.get('eventdate') or first.get('planned_date') or first.get('date') or None,
             # combinar rows como items caso items vindos do Gnexum representem sub-itens
             'items': items or rows,
         }
