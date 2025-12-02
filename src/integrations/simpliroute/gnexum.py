@@ -37,6 +37,22 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8, normalize: bo
         # modo stub seguro: não retornar items falsos — deixar lista vazia
         return []
 
+    # If configured, read directly from the Oracle DB view instead of calling the HTTP endpoint
+    try:
+        use_db = os.getenv('USE_GNEXUM_DB')
+        if use_db is not None and str(use_db).lower() in ('1', 'true', 'yes'):
+            try:
+                from .gnexum_db import fetch_items_for_record_db
+                # delegate to DB reader (which will run blocking calls in an executor)
+                items = await fetch_items_for_record_db(record_id)
+                if items:
+                    return items
+            except Exception:
+                # fall back to HTTP behavior on error
+                logger.debug('Gnexum DB fetch failed, falling back to HTTP')
+    except Exception:
+        pass
+
     # retry configuration (env overrides)
     try:
         FETCH_RETRIES = int(os.getenv("GNEXUM_FETCH_RETRIES", "2"))
