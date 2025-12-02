@@ -37,6 +37,16 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8, normalize: bo
         # modo stub seguro: não retornar items falsos — deixar lista vazia
         return []
 
+    # retry configuration (env overrides)
+    try:
+        FETCH_RETRIES = int(os.getenv("GNEXUM_FETCH_RETRIES", "2"))
+    except Exception:
+        FETCH_RETRIES = 2
+    try:
+        FETCH_DELAY = float(os.getenv("GNEXUM_FETCH_RETRY_DELAY_SECONDS", "1"))
+    except Exception:
+        FETCH_DELAY = 1.0
+
     headers = {"Content-Type": "application/json; charset=utf-8"}
     # obter token através do token manager (pode efetuar login se necessário)
     try:
@@ -67,23 +77,24 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8, normalize: bo
 
         out = []
         for r in rows:
+            # If row is not a dict, keep the simple representation
             if not isinstance(r, dict):
                 out.append({"title": str(r), "quantity_planned": 1.0, "load": 0.0})
                 continue
-            title = r.get("title") or r.get("nome") or r.get("NOME") or r.get("ESPECIALIDADE") or r.get("TIPOVISITA") or "item"
+            # Preserve the entire row so the mapper can access any field returned by Gnexum
+            item = dict(r)
+            # Coerce a few common numeric fields to expected types to avoid surprises
             try:
-                qty = float(r.get("quantity_planned") or r.get("quantidade") or r.get("qty") or 1.0)
+                if "quantity_planned" in item or "quantidade" in item or "qty" in item:
+                    item["quantity_planned"] = float(item.get("quantity_planned") or item.get("quantidade") or item.get("qty") or 1.0)
             except Exception:
-                qty = 1.0
+                item["quantity_planned"] = 1.0
             try:
-                load = float(r.get("load") or 0.0)
+                item["load"] = float(item.get("load") or 0.0)
             except Exception:
-                load = 0.0
-            item = {"title": title, "quantity_planned": qty, "load": load}
-            # preservar outras chaves úteis para depuração
-            for extra in ("ID_ATENDIMENTO", "PROFISSIONAL", "ESPECIALIDADE", "PERIODICIDADE", "TIPOVISITA"):
-                if extra in r:
-                    item[extra] = r.get(extra)
+                item["load"] = 0.0
+            # ensure title exists
+            item["title"] = item.get("title") or item.get("nome") or item.get("NOME") or item.get("ESPECIALIDADE") or item.get("TIPOVISITA") or "item"
             out.append(item)
 
         # Filtrar linhas para o registro solicitado (quando possível)
@@ -97,113 +108,144 @@ async def fetch_items_for_record(record_id: Any, timeout: int = 8, normalize: bo
 
         return out
 
+    # perform HTTP operations with limited retries and backoff
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             # Tentar GETs primeiro (mais seguro para endpoints que já retornam lista)
-            for url in candidates_get:
-                try:
-                    logger.debug("Gnexum: GET %s", url)
-                    resp = await client.get(url, headers=headers)
-                except Exception as e:
-                    logger.debug("Gnexum GET failed: %s", e)
+            for attempt in range(1, FETCH_RETRIES + 2):
+                for url in candidates_get:
                     resp = None
-                if not resp:
-                    continue
-                if resp.status_code == 401:
-                    logger.debug("Gnexum: GET recebeu 401, tentando login e re-tentar")
-                    await login_and_store()
                     try:
-                        token = await get_token()
-                        if token:
-                            headers["Authorization"] = f"Bearer {token}"
-                    except Exception:
-                        pass
-                    try:
+                        logger.debug("Gnexum: GET %s (attempt %d)", url, attempt)
                         resp = await client.get(url, headers=headers)
                     except Exception as e:
-                        logger.debug("Gnexum retry GET failed: %s", e)
+                        logger.debug("Gnexum GET failed (attempt %d): %s", attempt, e)
                         resp = None
-                if not resp:
-                    continue
-                if resp.status_code in (200, 201):
-                    try:
-                        data = resp.json()
-                        # debug output removed; use logger for diagnostics
-                        if normalize:
-                            items = await _normalize(data)
-                            # count available via logger.debug when needed
-                            if items:
-                                logger.debug("Gnexum: returned %d items via GET (normalized)", len(items))
-                                return items
-                        else:
-                            rows = data if isinstance(data, list) else data.get("items") or data.get("rows") or data.get("data") or []
-                            try:
-                                rid = int(record_id)
-                                matched = [r for r in rows if isinstance(r, dict) and int(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("id") or 0) == rid]
-                                if matched:
-                                    return matched
-                            except Exception:
-                                pass
-                            return rows
-                    except Exception as e:
-                        logger.debug("Gnexum GET parse error: %s", e)
+
+                    if not resp:
                         continue
 
-            # Se GETs não devolveram items, tentar POSTs como fallback
-            bodies = [{"idregistro": record_id}, {"record_id": record_id}, {"id": record_id}]
-            for b in bodies:
-                try:
-                    logger.debug("Gnexum: POST %s body=%s", GNEXUM_URL, b)
-                    resp = await client.post(GNEXUM_URL, json=b, headers=headers)
-                except Exception as e:
-                    logger.debug("Gnexum POST failed: %s", e)
-                    resp = None
-                if not resp:
-                    continue
-                if resp.status_code == 401:
-                    # token inválido/expirado: tentar login automático e repetir uma vez
-                    logger.debug("Gnexum: recebeu 401, tentando login automático e re-tentar")
-                    await login_and_store()
-                    # recarregar token
+                    if resp.status_code == 401:
+                        # try to refresh/login and retry immediately once
+                        logger.debug("Gnexum: GET recebeu 401, tentando refresh/login e re-tentar")
+                        try:
+                            newtok = await refresh_and_store()
+                            if not newtok:
+                                # fallback to full login
+                                await login_and_store()
+                        except Exception:
+                            pass
+                        try:
+                            token = await get_token()
+                            if token:
+                                headers["Authorization"] = f"Bearer {token}"
+                        except Exception:
+                            pass
+
+                        # try again immediately
+                        try:
+                            resp = await client.get(url, headers=headers)
+                        except Exception as e:
+                            logger.debug("Gnexum retry GET failed: %s", e)
+                            resp = None
+
+                    if not resp:
+                        continue
+
+                    if resp.status_code in (200, 201):
+                        try:
+                            data = resp.json()
+                            if normalize:
+                                items = await _normalize(data)
+                                if items:
+                                    logger.debug("Gnexum: returned %d items via GET (normalized)", len(items))
+                                    return items
+                            else:
+                                rows = data if isinstance(data, list) else data.get("items") or data.get("rows") or data.get("data") or []
+                                try:
+                                    rid = int(record_id)
+                                    matched = [r for r in rows if isinstance(r, dict) and int(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("id") or 0) == rid]
+                                    if matched:
+                                        return matched
+                                except Exception:
+                                    pass
+                                return rows
+                        except Exception as e:
+                            logger.debug("Gnexum GET parse error: %s", e)
+                            continue
+
+                # backoff between attempts
+                if attempt <= FETCH_RETRIES:
                     try:
-                        token = await get_token()
-                        if token:
-                            headers["Authorization"] = f"Bearer {token}"
+                        await asyncio.sleep(FETCH_DELAY * attempt)
                     except Exception:
                         pass
+
+            # Se GETs não devolveram items, tentar POSTs como fallback (com retries)
+            bodies = [{"idregistro": record_id}, {"record_id": record_id}, {"id": record_id}]
+            for attempt in range(1, FETCH_RETRIES + 2):
+                for b in bodies:
+                    resp = None
                     try:
+                        logger.debug("Gnexum: POST %s body=%s (attempt %d)", GNEXUM_URL, b, attempt)
                         resp = await client.post(GNEXUM_URL, json=b, headers=headers)
                     except Exception as e:
-                        logger.debug("Gnexum retry POST failed: %s", e)
+                        logger.debug("Gnexum POST failed (attempt %d): %s", attempt, e)
                         resp = None
-                if not resp:
-                    continue
-                if resp.status_code in (200, 201):
-                    try:
-                        data = resp.json()
-                        # debug output removed; use logger for diagnostics
-                        # when caller requests normalization, return normalized items
-                        if normalize:
-                            items = await _normalize(data)
-                            # count available via logger.debug when needed
-                            if items:
-                                logger.debug("Gnexum: returned %d items via POST (normalized)", len(items))
-                                return items
-                        else:
-                            # return raw rows structure (items/rows/data)
-                            rows = data if isinstance(data, list) else data.get("items") or data.get("rows") or data.get("data") or []
-                            # filter by record_id if possible
-                            try:
-                                rid = int(record_id)
-                                matched = [r for r in rows if isinstance(r, dict) and int(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("id") or 0) == rid]
-                                if matched:
-                                    return matched
-                            except Exception:
-                                pass
-                            return rows
-                    except Exception as e:
-                        logger.debug("Gnexum POST parse error: %s", e)
+
+                    if not resp:
                         continue
+
+                    if resp.status_code == 401:
+                        logger.debug("Gnexum: POST recebeu 401, tentando refresh/login e re-tentar")
+                        try:
+                            newtok = await refresh_and_store()
+                            if not newtok:
+                                await login_and_store()
+                        except Exception:
+                            pass
+                        try:
+                            token = await get_token()
+                            if token:
+                                headers["Authorization"] = f"Bearer {token}"
+                        except Exception:
+                            pass
+                        try:
+                            resp = await client.post(GNEXUM_URL, json=b, headers=headers)
+                        except Exception as e:
+                            logger.debug("Gnexum retry POST failed: %s", e)
+                            resp = None
+
+                    if not resp:
+                        continue
+
+                    if resp.status_code in (200, 201):
+                        try:
+                            data = resp.json()
+                            if normalize:
+                                items = await _normalize(data)
+                                if items:
+                                    logger.debug("Gnexum: returned %d items via POST (normalized)", len(items))
+                                    return items
+                            else:
+                                rows = data if isinstance(data, list) else data.get("items") or data.get("rows") or data.get("data") or []
+                                try:
+                                    rid = int(record_id)
+                                    matched = [r for r in rows if isinstance(r, dict) and int(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("id") or 0) == rid]
+                                    if matched:
+                                        return matched
+                                except Exception:
+                                    pass
+                                return rows
+                        except Exception as e:
+                            logger.debug("Gnexum POST parse error: %s", e)
+                            continue
+
+                if attempt <= FETCH_RETRIES:
+                    try:
+                        await asyncio.sleep(FETCH_DELAY * attempt)
+                    except Exception:
+                        pass
 
     except Exception as e:
         logger.debug("Gnexum overall error: %s", e)

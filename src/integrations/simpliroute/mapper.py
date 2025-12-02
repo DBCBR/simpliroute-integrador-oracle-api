@@ -15,6 +15,40 @@ def _minutes_to_hhmmss(minutes: int) -> str:
     return f"{h:02d}:{mm:02d}:00"
 
 
+def _normalize_duration(value) -> str:
+    """Aceita várias representações de duração e retorna 'HH:MM:SS'.
+
+    - Se já estiver no formato HH:MM:SS, retorna como está.
+    - Se for número (minutos) converte para HH:MM:SS.
+    - Se for string contendo apenas minutos ('20') converte.
+    - Caso inválido, retorna '00:00:00'.
+    """
+    if value is None:
+        return "00:00:00"
+    # já no formato HH:MM:SS
+    if isinstance(value, str):
+        v = value.strip()
+        parts = v.split(":")
+        if len(parts) == 3 and all(p.isdigit() for p in parts):
+            return v
+        # se for um número em string
+        if v.isdigit():
+            return _minutes_to_hhmmss(int(v))
+        # tentar extrair minutos se for como '20m' ou '20 min'
+        try:
+            digits = "".join(c for c in v if c.isdigit())
+            if digits:
+                return _minutes_to_hhmmss(int(digits))
+        except Exception:
+            pass
+        return "00:00:00"
+    # se for inteiro/float (minutos)
+    try:
+        return _minutes_to_hhmmss(int(value))
+    except Exception:
+        return "00:00:00"
+
+
 def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     """Constrói payload compatível com SimpliRoute para criação de visita.
 
@@ -35,20 +69,19 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
 
-    # Title: prefer `ID_ATENDIMENTO` + `NOME_PACIENTE` when available
+    # Title: use `NOME_PACIENTE` when available (user requirement)
     id_at = _get("ID_ATENDIMENTO") or _get("idregistro") or _get("id")
     nome_paciente = _get("NOME_PACIENTE") or _get("nome_paciente") or _get("NOME") or _get("nome")
-    if id_at:
-        # format: "<ID_ATENDIMENTO> <NOME_PACIENTE>" (concatenate ID and name)
-        title = f"{id_at} {nome_paciente}".strip() if nome_paciente else str(id_at)
+    if nome_paciente:
+        title = str(nome_paciente)
     elif _get("title"):
         title = str(_get("title"))
-    elif nome_paciente:
-        title = str(nome_paciente)
+    elif id_at:
+        title = str(id_at)
     else:
         title = "visit"
 
-    address = _get("endereco_geolocalizacao") or _get("ENDERECO") or _get("endereco") or ""
+    address = _get("address") or _get("endereco_geolocalizacao") or _get("ENDERECO") or _get("endereco") or ""
 
     payload: Dict[str, Any] = {
         "title": title,
@@ -56,6 +89,45 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         # properties: deixar vazio aqui, vamos preencher apenas chaves úteis depois
         "properties": {},
     }
+
+    # additional top-level fields expected by SimpliRoute — fill when available, else blank/empty
+    payload["tracking_id"] = _get("tracking_id") or _get("TRACKING_ID") or _get("tracking") or ""
+    payload["order"] = _get("order") or _get("ORDER") or None
+    payload["route"] = _get("route") or _get("ROUTE") or None
+    payload["route_estimated_time_start"] = _get("route_estimated_time_start") or _get("ROUTE_ESTIMATED_TIME_START") or None
+    payload["route_status"] = _get("route_status") or _get("ROUTE_STATUS") or None
+    payload["programmed_date"] = _get("programmed_date") or _get("programmed") or None
+    payload["estimated_time_arrival"] = _get("estimated_time_arrival") or None
+    payload["estimated_time_departure"] = _get("estimated_time_departure") or None
+    payload["checkin_time"] = _get("checkin_time") or _get("CHECKIN_TIME") or None
+    payload["checkout_time"] = _get("checkout_time") or _get("CHECKOUT_TIME") or None
+    payload["checkout_latitude"] = _get("checkout_latitude") or _get("CHECKOUT_LATITUDE") or None
+    payload["checkout_longitude"] = _get("checkout_longitude") or _get("CHECKOUT_LONGITUDE") or None
+    payload["checkout_comment"] = _get("checkout_comment") or _get("CHECKOUT_COMMENT") or ""
+    payload["checkout_observation"] = _get("checkout_observation") or _get("CHECKOUT_OBSERVATION") or None
+    payload["signature"] = _get("signature") or None
+    payload["pictures"] = _get("pictures") or []
+    payload["created"] = _get("created") or _get("created_at") or None
+    payload["modified"] = _get("modified") or _get("updated_at") or None
+    payload["eta_predicted"] = _get("eta_predicted") or None
+    payload["eta_current"] = _get("eta_current") or None
+    payload["driver"] = _get("driver") or None
+    payload["vehicle"] = _get("vehicle") or None
+    payload["priority"] = bool(_get("priority") or False)
+    payload["has_alert"] = bool(_get("has_alert") or False)
+    payload["priority_level"] = _get("priority_level") or None
+    payload["extra_field_values"] = _get("extra_field_values") or {}
+    # also allow top-level extra fields to be included in extra_field_values
+    # e.g., checkout_enfermagem, nome_profissional
+    for k in ("checkout_enfermagem", "nome_profissional"):
+        if k in record and record.get(k) is not None:
+            payload["extra_field_values"][k] = record.get(k)
+    payload["geocode_alert"] = _get("geocode_alert") or None
+    payload["current_eta"] = _get("current_eta") or None
+    payload["fleet"] = _get("fleet") or None
+    payload["on_its_way"] = _get("on_its_way") or None
+    payload["seller"] = _get("seller") or None
+    payload["is_route_completed"] = _get("is_route_completed") if _get("is_route_completed") is not None else False
 
     # planned_date if present (preferred) or from eventdate
     # suportar campo DT_VISITA vindo do Gnexum
@@ -78,7 +150,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     if duration is None:
         # allow 'service_time' or default 0
         duration = _get("service_time") or 0
-    payload["duration"] = _minutes_to_hhmmss(duration)
+    payload["duration"] = _normalize_duration(duration)
 
     # contact/reference/notes fields expected by SimpliRoute
     contact_name = _get("PESSOACONTATO") or _get("contact_name") or ""
@@ -87,14 +159,31 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     payload["contact_name"] = contact_name
     payload["contact_phone"] = contact_phone
     payload["contact_email"] = contact_email
-    payload["reference"] = str(_get("ID_ATENDIMENTO") or _get("idregistro") or "")
+    payload["reference"] = str(_get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or "")
     payload["notes"] = _get("notes") or ""
 
     # Items: converter para o formato esperado pela API de visits.items
-    rows = record.get("items") or record.get("rows") or record.get("ITEMS") or record.get("items") or []
+    rows = record.get("items") or record.get("rows") or record.get("ITEMS") or []
 
     # use first row as fallback source for visit-level fields when present
     first_row = rows[0] if rows else {}
+
+    # latitude/longitude: mapear quando disponíveis (prevenir re-geocoding)
+    lat = _get("latitude") or _get("LATITUDE") or _get("lat") or None
+    lon = _get("longitude") or _get("LONGITUDE") or _get("lon") or _get("lng") or None
+    # fallback para campos na primeira linha
+    if not lat and isinstance(first_row, dict):
+        lat = first_row.get("latitude") or first_row.get("LATITUDE") or first_row.get("checkout_latitude")
+    if not lon and isinstance(first_row, dict):
+        lon = first_row.get("longitude") or first_row.get("LONGITUDE") or first_row.get("checkout_longitude")
+    try:
+        payload["latitude"] = float(lat) if lat not in (None, "") else None
+    except Exception:
+        payload["latitude"] = None
+    try:
+        payload["longitude"] = float(lon) if lon not in (None, "") else None
+    except Exception:
+        payload["longitude"] = None
 
     # if contact fields are empty at record-level, use first row values
     if not payload.get("contact_name"):
@@ -218,13 +307,14 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     ordered = OrderedDict()
     ordered["id"] = None
-    ordered["order"] = None
-    ordered["tracking_id"] = None
-    ordered["status"] = "pending"
+    ordered["order"] = payload.get("order")
+    ordered["tracking_id"] = payload.get("tracking_id") or None
+    ordered["status"] = _get("status") or payload.get("status") or "pending"
     ordered["title"] = payload.get("title")
     ordered["address"] = payload.get("address")
-    ordered["latitude"] = None
-    ordered["longitude"] = None
+    # prefer the payload latitude/longitude when available to avoid re-geocoding
+    ordered["latitude"] = payload.get("latitude")
+    ordered["longitude"] = payload.get("longitude")
     ordered["load"] = payload.get("load", 0.0)
     ordered["load_2"] = payload.get("load_2", 0.0)
     ordered["load_3"] = payload.get("load_3", 0.0)
@@ -242,58 +332,46 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["skills_optional"] = []
     ordered["tags"] = []
     ordered["planned_date"] = payload.get("planned_date")
-    ordered["programmed_date"] = None
-    ordered["route"] = None
-    ordered["estimated_time_arrival"] = None
-    ordered["estimated_time_departure"] = None
-    ordered["checkin_time"] = None
-    ordered["checkout_time"] = None
-    ordered["checkout_latitude"] = None
-    ordered["checkout_longitude"] = None
-    ordered["checkout_comment"] = ""
-    ordered["checkout_observation"] = None
-    ordered["signature"] = None
-    ordered["pictures"] = []
-    ordered["created"] = None
-    ordered["modified"] = None
-    ordered["eta_predicted"] = None
-    ordered["eta_current"] = None
-    ordered["priority"] = False
-    ordered["has_alert"] = False
-    ordered["priority_level"] = None
-    ordered["extra_field_values"] = None
-    ordered["geocode_alert"] = None
+    ordered["programmed_date"] = payload.get("programmed_date")
+    ordered["route"] = payload.get("route")
+    ordered["route_estimated_time_start"] = payload.get("route_estimated_time_start")
+    ordered["route_status"] = payload.get("route_status")
+    ordered["estimated_time_arrival"] = payload.get("estimated_time_arrival")
+    ordered["estimated_time_departure"] = payload.get("estimated_time_departure")
+    ordered["checkin_time"] = payload.get("checkin_time")
+    ordered["checkout_time"] = payload.get("checkout_time")
+    ordered["checkout_latitude"] = payload.get("checkout_latitude")
+    ordered["checkout_longitude"] = payload.get("checkout_longitude")
+    ordered["checkout_comment"] = payload.get("checkout_comment") or ""
+    ordered["checkout_observation"] = payload.get("checkout_observation")
+    ordered["signature"] = payload.get("signature")
+    ordered["pictures"] = payload.get("pictures") or []
+    ordered["created"] = payload.get("created")
+    ordered["modified"] = payload.get("modified")
+    ordered["eta_predicted"] = payload.get("eta_predicted")
+    ordered["eta_current"] = payload.get("eta_current")
+    ordered["driver"] = payload.get("driver")
+    ordered["vehicle"] = payload.get("vehicle")
+    ordered["priority"] = bool(payload.get("priority") or False)
+    ordered["has_alert"] = bool(payload.get("has_alert") or False)
+    ordered["priority_level"] = payload.get("priority_level")
+    ordered["extra_field_values"] = payload.get("extra_field_values") or {}
+    ordered["geocode_alert"] = payload.get("geocode_alert")
     # visit_type: prefer mapping derived from ESPECIALIDADE; do not use raw TIPOVISITA
     # TIPOVISITA will be preserved in properties for traceability.
     visit_type_val = (
-        _get("TIPOVISITA") or _get("tipovisita") or first_row.get("TIPOVISITA") or first_row.get("tipovisita") or None
+        _get("TIPOVISITA") or _get("tipovisita") or (first_row.get("TIPOVISITA") if isinstance(first_row, dict) else None) or None
     )
     # Map ESPECIALIDADE (valor do Gnexum) para a key esperada pelo SimpliRoute
-    esp_val_record = (_get("ESPECIALIDADE") or _get("especialidade") or first_row.get("ESPECIALIDADE") or first_row.get("especialidade") or "")
+    esp_val_record = (_get("ESPECIALIDADE") or _get("especialidade") or (first_row.get("ESPECIALIDADE") if isinstance(first_row, dict) else "") or "")
 
-    def _strip_accents(s: str) -> str:
-        try:
-            return "".join(c for c in unicodedata.normalize("NFKD", s) if unicodedata.category(c) != "Mn")
-        except Exception:
-            return s
-
-    esp_norm = _strip_accents(str(esp_val_record or "").lower()).strip()
     esp_lower = str(esp_val_record or "").lower()
 
-    # Mapeamento conhecido: chaves/labels possíveis mapeadas para as keys do SR
-    esp_to_visit_type = {
-        "enfermagem": "enf_visit",
-        "medica": "mÃ©dica",
-        "médica": "mÃ©dica",
-        "mÃ©dica": "mÃ©dica",
-    }
-
     visit_type_key = None
-    # tentativa de correspondência por substring tanto no valor cru quanto na versão sem acentos
-    if esp_lower and "enferm" in esp_lower:
+    if esp_lower and ("enferm" in esp_lower or "enfermeito" in esp_lower):
         visit_type_key = "enf_visit"
-    elif esp_lower and any(tok in esp_lower for tok in ("med", "méd", "mÃ", "pediatria")):
-        visit_type_key = "mÃ©dica"
+    elif esp_lower and any(tok in esp_lower for tok in ("medico", "médico", "med", "pediatria")):
+        visit_type_key = "médica"
 
     # Definir visit_type APENAS quando houver mapeamento conhecido a partir de ESPECIALIDADE.
     if visit_type_key:
@@ -305,17 +383,22 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             if "enferm" in vt_low:
                 ordered["visit_type"] = "enf_visit"
             elif any(tok in vt_low for tok in ("med", "méd", "pediatria")):
-                ordered["visit_type"] = "mÃ©dica"
-    ordered["current_eta"] = None
-    ordered["fleet"] = None
-    ordered["seller"] = None
+                ordered["visit_type"] = "médica"
+    ordered["current_eta"] = payload.get("current_eta")
+    ordered["fleet"] = payload.get("fleet")
+    ordered["seller"] = payload.get("seller")
+    ordered["on_its_way"] = payload.get("on_its_way") if payload.get("on_its_way") is not None else None
+    ordered["is_route_completed"] = payload.get("is_route_completed") if payload.get("is_route_completed") is not None else False
 
-    # properties: include existing properties and add PROFESSIONAL/ESPECIALIDADE/PERIODICIDADE
-    # Use OrderedDict to guarantee insertion order in properties
-    props = OrderedDict()
-    # copy known property keys: prefer record-level values, fallback to first_row
-    prof = (_get("PROFISSIONAL") or _get("profissional") or first_row.get("PROFISSIONAL") or first_row.get("profissional"))
-    esp = (_get("ESPECIALIDADE") or _get("especialidade") or first_row.get("ESPECIALIDADE") or first_row.get("especialidade"))
+    # copy known property keys / values from record or rows (we don't add a `properties` block)
+    prof = (
+        _get("PROFISSIONAL")
+        or _get("profissional")
+        or first_row.get("PROFISSIONAL")
+        or first_row.get("profissional")
+        or (payload.get("extra_field_values") or {}).get("nome_profissional")
+    )
+    esp = (_get("ESPECIALIDADE") or _get("especialidade") or first_row.get("ESPECIALIDADE") or first_row.get("especialidade") or "")
     # Periodicidade: aceitar várias variações e procurar também dentro das rows
     per = (
         _get("PERIODICIDADE")
@@ -358,20 +441,47 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             if found:
                 per = found
                 break
-    # Inserir properties na ordem desejada: PROFISSIONAL, ESPECIALIDADE, PERIODICIDADE, TIPOVISITA
-    # Garantir que sempre existam as 4 chaves (valor = string vazia quando não houver informação)
-    props["PROFISSIONAL"] = prof or ""
-    props["ESPECIALIDADE"] = esp or ""
-    props["PERIODICIDADE"] = per or ""
-    # incluir TIPOVISITA na propriedade para rastreabilidade (valor original do Gnexum)
-    tipovisita_val = (_get("TIPOVISITA") or _get("tipovisita") or first_row.get("TIPOVISITA") or first_row.get("tipovisita") or "")
-    props["TIPOVISITA"] = tipovisita_val or ""
-    ordered["properties"] = props
+    # TIPOVISITA original value for traceability
+    # Prefer record-level values, else first non-empty value from rows
+    def _first_non_empty(*values):
+        for v in values:
+            try:
+                if v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    return s
+            except Exception:
+                continue
+        return ""
+
+    tipovisita_val = _first_non_empty(
+        _get("TIPOVISITA"), _get("tipovisita"),
+        first_row.get("TIPOVISITA") if isinstance(first_row, dict) else None,
+        first_row.get("tipovisita") if isinstance(first_row, dict) else None,
+    )
+
+    # Find ESPECIALIDADE: record-level preferred, else scan rows for first non-empty
+    esp_val = _first_non_empty(_get("ESPECIALIDADE"), _get("especialidade"))
+    if not esp_val and isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            candidate = _first_non_empty(r.get("ESPECIALIDADE"), r.get("especialidade"))
+            if candidate:
+                esp_val = candidate
+                break
+
+    # Format notes as "ESPECIALIDADE - TIPOVISITA" (omit separator when missing)
+    if esp_val and tipovisita_val:
+        payload["notes"] = f"{esp_val} - {tipovisita_val}"
+    else:
+        payload["notes"] = esp_val or tipovisita_val or ""
 
     # Safety: if the properties or visit_type explicitly indicate a medical/nursing visit,
     # ensure we do NOT include items even if rows were present upstream.
-    esp_val = (props.get("ESPECIALIDADE") or ordered.get("visit_type") or "")
-    if isinstance(esp_val, str) and any(tok in esp_val.lower() for tok in ("medic", "médic", "enferm", "enfermeir")):
+    esp_val = (esp or ordered.get("visit_type") or "")
+    if isinstance(esp_val, str) and any(tok in esp_val.lower() for tok in ("medico", "médico", "med", "enferm", "enfermeir", "enfermeito")):
         ordered.pop("items", None)
 
     # items: include only when present in payload (we omitted for medico/enfermeiro)
@@ -382,19 +492,113 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     ordered["on_its_way"] = None
 
-    # If id is None, remove it so SimpliRoute will generate the identifier on create
-    if ordered.get("id") is None:
-        ordered.pop("id", None)
+    # Ensure final notes assembled from available fields (record-level or rows)
+    def _first_non_empty_local(*vals):
+        for v in vals:
+            try:
+                if v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    return s
+            except Exception:
+                continue
+        return ""
+
+    # prefer record-level ESPECIALIDADE/TIPOVISITA, else first row that has them
+    final_esp = _first_non_empty_local(_get("ESPECIALIDADE"), _get("especialidade"))
+    if not final_esp and isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            cand = _first_non_empty_local(r.get("ESPECIALIDADE"), r.get("especialidade"))
+            if cand:
+                final_esp = cand
+                break
+
+    final_tip = _first_non_empty_local(_get("TIPOVISITA"), _get("tipovisita"))
+    if not final_tip and isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            cand = _first_non_empty_local(r.get("TIPOVISITA"), r.get("tipovisita"))
+            if cand:
+                final_tip = cand
+                break
+
+    if final_esp and final_tip:
+        ordered["notes"] = f"{final_esp} - {final_tip}"
+    elif final_esp:
+        ordered["notes"] = final_esp
+    elif final_tip:
+        ordered["notes"] = final_tip
 
     # Normalize strings throughout the ordered payload (NFC)
     ordered = _normalize_obj(ordered)
 
-    # Remove keys whose value is None (don't send nulls unless we explicitly have a value)
-    for k in list(ordered.keys()):
-        if ordered[k] is None:
-            ordered.pop(k, None)
+    # Ensure all keys from the example JSON remain present. For missing values, use
+    # sensible empty defaults (no literal 'None'/'NULL' strings):
+    string_keys = {
+        "id",
+        "title",
+        "address",
+        "window_start",
+        "window_end",
+        "window_start_2",
+        "window_end_2",
+        "duration",
+        "contact_name",
+        "contact_phone",
+        "contact_email",
+        "reference",
+        "notes",
+        "planned_date",
+        "programmed_date",
+        "route",
+        "route_estimated_time_start",
+        "route_status",
+        "estimated_time_arrival",
+        "estimated_time_departure",
+        "checkin_time",
+        "checkout_time",
+        "checkout_latitude",
+        "checkout_longitude",
+        "checkout_comment",
+        "checkout_observation",
+        "signature",
+        "created",
+        "modified",
+        "eta_predicted",
+        "eta_current",
+        "current_eta",
+        "geocode_alert",
+        "fleet",
+        "seller",
+    }
+    list_keys = {"skills_required", "skills_optional", "tags", "pictures"}
+    dict_keys = {"extra_field_values"}
+    bool_keys = {"priority", "has_alert", "is_route_completed", "on_its_way"}
+    numeric_keys = {"load", "load_2", "load_3", "driver", "vehicle", "priority_level", "latitude", "longitude"}
 
-    # If items is present but empty, remove it (don't send empty items array for medico/enfermeiro)
+    for k in list(ordered.keys()):
+        v = ordered.get(k)
+        if v is None:
+            if k in list_keys:
+                ordered[k] = []
+            elif k in dict_keys:
+                ordered[k] = {}
+            elif k in bool_keys:
+                ordered[k] = False
+            elif k in numeric_keys:
+                # Use empty string for coordinates/numbers if original data absent
+                ordered[k] = ""
+            elif k in string_keys:
+                ordered[k] = ""
+            else:
+                # Default to empty string to avoid sending literal nulls
+                ordered[k] = ""
+
+    # If items is present but empty, remove it (do not send empty items array for medico/enfermeiro)
     if "items" in ordered and (ordered.get("items") is None or (isinstance(ordered.get("items"), list) and len(ordered.get("items")) == 0)):
         ordered.pop("items", None)
 

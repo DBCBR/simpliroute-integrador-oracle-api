@@ -197,6 +197,118 @@ async def login_and_store() -> Optional[str]:
     return token
 
 
+async def refresh_and_store() -> Optional[str]:
+    """Tenta renovar access token usando `GNEXUM_REFRESH_TOKEN` e grava novo token em `settings/.env`.
+
+    Regras:
+    - Procura `GNEXUM_TOKEN_REFRESH_URL`, `GNEXUM_REFRESH_URL` ou `GNEXUM_TOKEN_REFRESH_ENDPOINT`.
+    - Envia `{"refresh_token": <token>}` como JSON; se falhar, tenta `application/x-www-form-urlencoded`.
+    - Persiste `GNEXUM_TOKEN`, `GNEXUM_REFRESH_TOKEN` (se retornado) e `GNEXUM_EXPIRES_IN`.
+    """
+    # recarregar .env para ter certeza
+    load_dotenv(_env_path(), override=True)
+    refresh_token = os.getenv("GNEXUM_REFRESH_TOKEN")
+    # if there is no refresh token, fallback to full login
+    if not refresh_token:
+        logger.debug("refresh_and_store: nenhum refresh token presente — tentando login completo")
+        try:
+            return await login_and_store()
+        except Exception:
+            return None
+
+    refresh_url = os.getenv("GNEXUM_TOKEN_REFRESH_URL") or os.getenv("GNEXUM_REFRESH_URL") or os.getenv("GNEXUM_TOKEN_REFRESH_ENDPOINT")
+    if not refresh_url:
+        logger.debug("refresh_and_store: nenhum endpoint de refresh configurado — usando login completo como fallback")
+        try:
+            return await login_and_store()
+        except Exception:
+            return None
+
+    resp = None
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        # tentar JSON
+        try:
+            resp = await client.post(refresh_url, json={"refresh_token": refresh_token})
+        except Exception as e:
+            logger.debug("refresh_and_store: POST json failed: %s", e)
+            resp = None
+
+        if not resp or resp.status_code not in (200, 201):
+            # tentar form-encoded fallback
+            try:
+                headers = {"Content-Type": "application/x-www-form-urlencoded"}
+                resp = await client.post(refresh_url, data={"refresh_token": refresh_token}, headers=headers)
+            except Exception as e:
+                logger.debug("refresh_and_store: POST form failed: %s", e)
+                resp = None
+
+    if not resp or resp.status_code not in (200, 201):
+        logger.debug("refresh_and_store: refresh failed status=%s — tentando login completo como fallback", getattr(resp, 'status_code', None))
+        try:
+            return await login_and_store()
+        except Exception:
+            return None
+
+    try:
+        data = resp.json()
+    except Exception:
+        logger.debug("refresh_and_store: resposta de refresh não é JSON")
+        return None
+
+    # detectar access token e refresh token em possíveis formas
+    def _find_token_in_obj_local(obj):
+        try:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    lk = str(k).lower()
+                    if isinstance(v, str) and any(x in lk for x in ("access", "token")) and len(v) > 10:
+                        return v
+                    res = _find_token_in_obj_local(v)
+                    if res:
+                        return res
+            elif isinstance(obj, list):
+                for item in obj:
+                    res = _find_token_in_obj_local(item)
+                    if res:
+                        return res
+        except Exception:
+            return None
+        return None
+
+    token = (
+        data.get("access_token")
+        or data.get("token")
+        or data.get("accessToken")
+        or _find_token_in_obj_local(data)
+    )
+    refresh = (
+        data.get("refresh_token")
+        or data.get("refreshToken")
+        or data.get("refresh")
+        or None
+    )
+    expires = data.get("expires_in") or data.get("expiresIn") or data.get("expires")
+
+    if not token:
+        logger.debug("refresh_and_store: resposta de refresh sem access token")
+        return None
+
+    updates: Dict[str, str] = {"GNEXUM_TOKEN": token}
+    if refresh:
+        updates["GNEXUM_REFRESH_TOKEN"] = refresh
+    if expires:
+        updates["GNEXUM_EXPIRES_IN"] = str(expires)
+    updates["GNEXUM_TOKEN_UPDATED_AT"] = str(int(time.time()))
+
+    try:
+        _write_env_file(updates)
+        load_dotenv(_env_path(), override=True)
+    except Exception as e:
+        logger.debug("refresh_and_store: falha ao gravar .env %s", e)
+
+    return token
+
+
 async def get_token() -> Optional[str]:
     """Retorna um token válido. Se ausente/expirado e credenciais disponíveis, tenta login automático."""
     # garantir que valores no arquivo .env substituam quaisquer valores já presentes
