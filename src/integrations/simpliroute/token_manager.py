@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 
 import httpx
 from dotenv import load_dotenv
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,8 @@ async def login_and_store() -> Optional[str]:
 
     Retorna o `access_token` em caso de sucesso, ou None.
     """
-    load_dotenv(_env_path())
+    # garantir que valores no arquivo .env substituam quaisquer valores já presentes
+    load_dotenv(_env_path(), override=True)
     login_url = os.getenv("GNEXUM_LOGIN_URL")
     if not login_url:
         logger.debug("login_and_store: GNEXUM_LOGIN_URL não definido")
@@ -86,16 +88,46 @@ async def login_and_store() -> Optional[str]:
         else:
             payload = {"username": user, "password": pwd}
 
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            logger.debug("login_and_store: POST %s payload=%s", login_url, {k: (v if k.lower() not in ("password",) else "***") for k, v in payload.items()})
-            resp = await client.post(login_url, json=payload)
-    except Exception as e:
-        logger.debug("login_and_store: request failed %s", e)
-        return None
+    # tentar com retries e fallback (JSON -> form-encoded)
+    resp = None
+    attempts = int(os.getenv("GNEXUM_LOGIN_RETRIES", "3") or 3)
+    delay = float(os.getenv("GNEXUM_LOGIN_RETRY_DELAY_SECONDS", "1") or 1)
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for attempt in range(1, attempts + 1):
+            try:
+                logger.debug("login_and_store: attempt %d POST json %s", attempt, login_url)
+                resp = await client.post(login_url, json=payload)
+            except Exception as e:
+                logger.debug("login_and_store: POST json attempt %d failed: %s", attempt, e)
+                resp = None
 
-    if resp.status_code not in (200, 201):
-        logger.debug("login_and_store: login status=%s body=%s", resp.status_code, resp.text[:200])
+            if resp and resp.status_code in (200, 201):
+                break
+
+            # tentar form-encoded como fallback
+            try:
+                logger.debug("login_and_store: attempt %d POST form %s", attempt, login_url)
+                headers = {"Content-Type": "application/x-www-form-urlencoded"}
+                resp = await client.post(login_url, data=payload, headers=headers)
+            except Exception as e:
+                logger.debug("login_and_store: POST form attempt %d failed: %s", attempt, e)
+                resp = None
+
+            if resp and resp.status_code in (200, 201):
+                break
+
+            # esperar antes do próximo attempt (backoff simples)
+            try:
+                await asyncio.sleep(delay)
+            except Exception:
+                pass
+
+    if not resp or resp.status_code not in (200, 201):
+        try:
+            body_preview = resp.text[:400] if resp is not None else '<no-response>'
+        except Exception:
+            body_preview = '<no-body>'
+        logger.debug("login_and_store: login failed status=%s body=%s", getattr(resp, 'status_code', None), body_preview)
         return None
 
     try:
@@ -104,13 +136,47 @@ async def login_and_store() -> Optional[str]:
         logger.debug("login_and_store: resposta não é JSON")
         return None
 
-    # Normalizar chaves possíveis
-    token = data.get("access_token") or data.get("token") or data.get("accessToken")
-    refresh = data.get("refresh_token") or data.get("refreshToken") or data.get("refresh")
+    # Normalizar chaves possíveis, e procurar recursivamente por tokens em estruturas aninhadas
+    def _find_token_in_obj(obj):
+        try:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    lk = str(k).lower()
+                    if isinstance(v, str) and any(x in lk for x in ("access", "token")) and len(v) > 10:
+                        return v
+                    res = _find_token_in_obj(v)
+                    if res:
+                        return res
+            elif isinstance(obj, list):
+                for item in obj:
+                    res = _find_token_in_obj(item)
+                    if res:
+                        return res
+        except Exception:
+            return None
+        return None
+
+    token = (
+        data.get("access_token")
+        or data.get("token")
+        or data.get("accessToken")
+        or _find_token_in_obj(data)
+    )
+    refresh = (
+        data.get("refresh_token")
+        or data.get("refreshToken")
+        or data.get("refresh")
+        or _find_token_in_obj(data.get("refresh") or {})
+    )
     expires = data.get("expires_in") or data.get("expiresIn") or data.get("expires")
 
     if not token:
-        logger.debug("login_and_store: resposta sem access token: %s", list(data.keys()))
+        # log detalhado para diagnóstico — não imprimir senha
+        try:
+            preview = resp.text[:800]
+        except Exception:
+            preview = '<no-body>'
+        logger.debug("login_and_store: resposta sem access token; status=%s body_preview=%s", resp.status_code, preview)
         return None
 
     updates: Dict[str, str] = {"GNEXUM_TOKEN": token}
@@ -133,7 +199,8 @@ async def login_and_store() -> Optional[str]:
 
 async def get_token() -> Optional[str]:
     """Retorna um token válido. Se ausente/expirado e credenciais disponíveis, tenta login automático."""
-    load_dotenv(_env_path())
+    # garantir que valores no arquivo .env substituam quaisquer valores já presentes
+    load_dotenv(_env_path(), override=True)
     token = os.getenv("GNEXUM_TOKEN")
     expires_in = os.getenv("GNEXUM_EXPIRES_IN")
     updated_at = os.getenv("GNEXUM_TOKEN_UPDATED_AT")
@@ -154,7 +221,15 @@ async def get_token() -> Optional[str]:
             # em caso de parse error, tentar login
             pass
 
-    # tentar login automático se possível
+    # tentar renovar via refresh token antes de efetuar novo login completo
+    try:
+        refreshed = await refresh_and_store()
+        if refreshed:
+            return refreshed
+    except Exception:
+        pass
+
+    # tentar login automático se possível (fallback)
     new = await login_and_store()
     if new:
         return new

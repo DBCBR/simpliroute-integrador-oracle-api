@@ -35,13 +35,16 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
 
-    # Title: prefer explicit title, else patient name, else idregistro/ID_ATENDIMENTO, else fallback
-    if _get("title"):
+    # Title: prefer `ID_ATENDIMENTO` + `NOME_PACIENTE` when available
+    id_at = _get("ID_ATENDIMENTO") or _get("idregistro") or _get("id")
+    nome_paciente = _get("NOME_PACIENTE") or _get("nome_paciente") or _get("NOME") or _get("nome")
+    if id_at:
+        # format: "<ID_ATENDIMENTO> <NOME_PACIENTE>" (concatenate ID and name)
+        title = f"{id_at} {nome_paciente}".strip() if nome_paciente else str(id_at)
+    elif _get("title"):
         title = str(_get("title"))
-    elif _get("NOME_PACIENTE", "nome_paciente"):
-        title = f"visit-{_get('NOME_PACIENTE', 'nome_paciente')}"
-    elif _get("idregistro") or _get("ID_ATENDIMENTO"):
-        title = f"visit-{_get('idregistro') or _get('ID_ATENDIMENTO')}"
+    elif nome_paciente:
+        title = str(nome_paciente)
     else:
         title = "visit"
 
@@ -137,18 +140,22 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             "notes": notes,
         }
 
-    # Determine visit type to decide whether to include items (check record-level then first row)
-    visit_type = (
-        _get("ESPECIALIDADE")
-        or _get("TIPOVISITA")
-        or _get("visit_type")
-        or first_row.get("ESPECIALIDADE")
-        or first_row.get("TIPOVISITA")
-        or ""
-    ).lower()
+    # Determine visit type to decide whether to include items.
+    # Check record-level fields and all rows: if any mention 'medic'/'enferm' we omit items.
+    visit_type_candidates = []
+    visit_type_candidates.append(_get("ESPECIALIDADE") or _get("TIPOVISITA") or _get("visit_type") or "")
+    visit_type_candidates.append(first_row.get("ESPECIALIDADE") or first_row.get("TIPOVISITA") or "")
+    # also inspect every row for ESPECIALIDADE/TIPOVISITA
+    for r in rows:
+        try:
+            visit_type_candidates.append((r.get("ESPECIALIDADE") or r.get("TIPOVISITA") or ""))
+        except Exception:
+            continue
+
+    visit_type_combined = " ".join([str(x) for x in visit_type_candidates if x]).lower()
 
     # When visit type indicates medical or nursing visit, do not include items
-    if any(tok in visit_type for tok in ("medic", "médic", "enferm", "enfermeir")):
+    if any(tok in visit_type_combined for tok in ("medic", "médic", "enferm", "enfermeir")):
         # explicit: no items key for médico/enfermeiro visits
         pass
     else:
@@ -256,28 +263,116 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["priority_level"] = None
     ordered["extra_field_values"] = None
     ordered["geocode_alert"] = None
-    # visit_type should come from TIPOVISITA
+    # visit_type: prefer mapping derived from ESPECIALIDADE; do not use raw TIPOVISITA
+    # TIPOVISITA will be preserved in properties for traceability.
     visit_type_val = (
         _get("TIPOVISITA") or _get("tipovisita") or first_row.get("TIPOVISITA") or first_row.get("tipovisita") or None
     )
-    ordered["visit_type"] = visit_type_val
+    # Map ESPECIALIDADE (valor do Gnexum) para a key esperada pelo SimpliRoute
+    esp_val_record = (_get("ESPECIALIDADE") or _get("especialidade") or first_row.get("ESPECIALIDADE") or first_row.get("especialidade") or "")
+
+    def _strip_accents(s: str) -> str:
+        try:
+            return "".join(c for c in unicodedata.normalize("NFKD", s) if unicodedata.category(c) != "Mn")
+        except Exception:
+            return s
+
+    esp_norm = _strip_accents(str(esp_val_record or "").lower()).strip()
+    esp_lower = str(esp_val_record or "").lower()
+
+    # Mapeamento conhecido: chaves/labels possíveis mapeadas para as keys do SR
+    esp_to_visit_type = {
+        "enfermagem": "enf_visit",
+        "medica": "mÃ©dica",
+        "médica": "mÃ©dica",
+        "mÃ©dica": "mÃ©dica",
+    }
+
+    visit_type_key = None
+    # tentativa de correspondência por substring tanto no valor cru quanto na versão sem acentos
+    if esp_lower and "enferm" in esp_lower:
+        visit_type_key = "enf_visit"
+    elif esp_lower and any(tok in esp_lower for tok in ("med", "méd", "mÃ", "pediatria")):
+        visit_type_key = "mÃ©dica"
+
+    # Definir visit_type APENAS quando houver mapeamento conhecido a partir de ESPECIALIDADE.
+    if visit_type_key:
+        ordered["visit_type"] = visit_type_key
+    else:
+        # se não temos mapeamento por ESPECIALIDADE, tentar inferir pela string de TIPOVISITA
+        if isinstance(visit_type_val, str) and visit_type_val:
+            vt_low = visit_type_val.lower()
+            if "enferm" in vt_low:
+                ordered["visit_type"] = "enf_visit"
+            elif any(tok in vt_low for tok in ("med", "méd", "pediatria")):
+                ordered["visit_type"] = "mÃ©dica"
     ordered["current_eta"] = None
     ordered["fleet"] = None
     ordered["seller"] = None
 
     # properties: include existing properties and add PROFESSIONAL/ESPECIALIDADE/PERIODICIDADE
-    props = dict(payload.get("properties", {}))
-    # copy known property keys from first_row if present
-    prof = first_row.get("PROFISSIONAL") or first_row.get("profissional")
-    esp = first_row.get("ESPECIALIDADE") or first_row.get("especialidade")
-    per = first_row.get("PERIODICIDADE") or first_row.get("periodicidade")
-    if prof:
-        props["PROFISSIONAL"] = prof
-    if esp:
-        props["ESPECIALIDADE"] = esp
-    if per:
-        props["PERIODICIDADE"] = per
+    # Use OrderedDict to guarantee insertion order in properties
+    props = OrderedDict()
+    # copy known property keys: prefer record-level values, fallback to first_row
+    prof = (_get("PROFISSIONAL") or _get("profissional") or first_row.get("PROFISSIONAL") or first_row.get("profissional"))
+    esp = (_get("ESPECIALIDADE") or _get("especialidade") or first_row.get("ESPECIALIDADE") or first_row.get("especialidade"))
+    # Periodicidade: aceitar várias variações e procurar também dentro das rows
+    per = (
+        _get("PERIODICIDADE")
+        or _get("periodicidade")
+        or _get("PERIODICIDADE_VISITA")
+        or _get("periodicidade_visita")
+        or _get("FREQUENCIA")
+        or _get("frequencia")
+        or first_row.get("PERIODICIDADE")
+        or first_row.get("periodicidade")
+        or first_row.get("PERIODICIDADE_VISITA")
+        or first_row.get("periodicidade_visita")
+        or first_row.get("FREQUENCIA")
+        or first_row.get("frequencia")
+    )
+    # if still not found, try scanning record keys (normalized) and then rows
+    def _find_period_in_mapping(mapping: Dict[str, Any]):
+        for k, v in mapping.items():
+            if not k:
+                continue
+            kn = str(k).lower()
+            kn_norm = "".join(c for c in unicodedata.normalize("NFKD", kn) if unicodedata.category(c) != "Mn")
+            if "period" in kn_norm or "periodic" in kn_norm or "frequ" in kn_norm:
+                if v:
+                    return v
+        return None
+
+    if not per:
+        # scan top-level record
+        try:
+            per = _find_period_in_mapping(record) or per
+        except Exception:
+            pass
+
+    if not per and isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            found = _find_period_in_mapping(r)
+            if found:
+                per = found
+                break
+    # Inserir properties na ordem desejada: PROFISSIONAL, ESPECIALIDADE, PERIODICIDADE, TIPOVISITA
+    # Garantir que sempre existam as 4 chaves (valor = string vazia quando não houver informação)
+    props["PROFISSIONAL"] = prof or ""
+    props["ESPECIALIDADE"] = esp or ""
+    props["PERIODICIDADE"] = per or ""
+    # incluir TIPOVISITA na propriedade para rastreabilidade (valor original do Gnexum)
+    tipovisita_val = (_get("TIPOVISITA") or _get("tipovisita") or first_row.get("TIPOVISITA") or first_row.get("tipovisita") or "")
+    props["TIPOVISITA"] = tipovisita_val or ""
     ordered["properties"] = props
+
+    # Safety: if the properties or visit_type explicitly indicate a medical/nursing visit,
+    # ensure we do NOT include items even if rows were present upstream.
+    esp_val = (props.get("ESPECIALIDADE") or ordered.get("visit_type") or "")
+    if isinstance(esp_val, str) and any(tok in esp_val.lower() for tok in ("medic", "médic", "enferm", "enfermeir")):
+        ordered.pop("items", None)
 
     # items: include only when present in payload (we omitted for medico/enfermeiro)
     if "items" in payload:

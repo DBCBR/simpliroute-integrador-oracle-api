@@ -38,13 +38,20 @@ from src.integrations.simpliroute import client as sr_client
 from src.integrations.simpliroute.mapper import build_visit_payload
 from src.integrations.simpliroute.gnexum import fetch_items_for_record
 from src.integrations.simpliroute.token_manager import login_and_store, get_token
+from dotenv import load_dotenv
 from src.core.config import load_config
 
 import httpx
 
 # carregar config
 _CFG = load_config()
-SAVE_PAYLOADS = bool(_CFG.get("simpliroute", {}).get("save_payloads", True))
+# By default do NOT persist payload artifacts to disk unless explicitly allowed via env
+# Use env `DRY_RUN_SAVE_PAYLOADS=1` to enable writing payloads (legacy behavior)
+SAVE_PAYLOADS = os.getenv('DRY_RUN_SAVE_PAYLOADS', '').lower() in ('1', 'true', 'yes') or bool(
+    _CFG.get("simpliroute", {}).get("save_payloads", False)
+)
+# If DRY_RUN_PRINT_ONLY is set, the runner will only print previews and won't write files
+PRINT_ONLY = os.getenv('DRY_RUN_PRINT_ONLY', '0').lower() in ('1', 'true', 'yes')
 SUMMARY_CSV = os.path.join(proj_root, 'data', 'output', 'payloads_summary.csv')
 
 
@@ -79,26 +86,33 @@ async def fake_post_simpliroute(route_payload):
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(sim_dir, exist_ok=True)
 
-    # salvar payload JSON
-    if SAVE_PAYLOADS:
-        path = os.path.join(out_dir, fname)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(route_payload, f, ensure_ascii=False, indent=2)
-        print(f"[DRY-RUN] saved payload to {path}")
-
-        # atualizar CSV resumo
+    # salvar payload JSON (a menos que rodando em modo de impressão apenas)
+    if PRINT_ONLY:
         try:
-            os.makedirs(os.path.dirname(SUMMARY_CSV), exist_ok=True)
-            write_header = not os.path.exists(SUMMARY_CSV)
-            with open(SUMMARY_CSV, 'a', encoding='utf-8', newline='') as cf:
-                writer = csv.writer(cf)
-                if write_header:
-                    writer.writerow(['ts', 'source_ident', 'title', 'filename', 'status_code'])
-                writer.writerow([ts, sid, title, fname, 200])
-        except Exception as e:
-            print('[DRY-RUN] failed to update CSV summary:', e)
+            print('[DRY-RUN] DRY_RUN_PRINT_ONLY enabled; payload preview:')
+            print(json.dumps(route_payload, ensure_ascii=False, indent=2))
+        except Exception:
+            print('[DRY-RUN] payload preview failed to serialize')
     else:
-        print('[DRY-RUN] save_payloads disabled by config; skipping file write e CSV')
+        if SAVE_PAYLOADS:
+            path = os.path.join(out_dir, fname)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(route_payload, f, ensure_ascii=False, indent=2)
+            print(f"[DRY-RUN] saved payload to {path}")
+
+            # atualizar CSV resumo
+            try:
+                os.makedirs(os.path.dirname(SUMMARY_CSV), exist_ok=True)
+                write_header = not os.path.exists(SUMMARY_CSV)
+                with open(SUMMARY_CSV, 'a', encoding='utf-8', newline='') as cf:
+                    writer = csv.writer(cf)
+                    if write_header:
+                        writer.writerow(['ts', 'source_ident', 'title', 'filename', 'status_code'])
+                    writer.writerow([ts, sid, title, fname, 200])
+            except Exception as e:
+                print('[DRY-RUN] failed to update CSV summary:', e)
+        else:
+            print('[DRY-RUN] save_payloads disabled by config; skipping file write e CSV')
 
     # gravar artefato simulando a requisição ao SR (headers + body)
     try:
@@ -120,10 +134,17 @@ async def fake_post_simpliroute(route_payload):
             },
             'body': body_json,
         }
-        sim_path = os.path.join(sim_dir, fname)
-        with open(sim_path, 'w', encoding='utf-8') as sf:
-            json.dump(simulated, sf, ensure_ascii=False, indent=2)
-        print(f"[DRY-RUN] saved simulated request to {sim_path}")
+        if PRINT_ONLY:
+            try:
+                print('[DRY-RUN] DRY_RUN_PRINT_ONLY enabled; simulated request preview:')
+                print(json.dumps(simulated, ensure_ascii=False, indent=2))
+            except Exception:
+                print('[DRY-RUN] simulated request preview failed to serialize')
+        else:
+            sim_path = os.path.join(sim_dir, fname)
+            with open(sim_path, 'w', encoding='utf-8') as sf:
+                json.dump(simulated, sf, ensure_ascii=False, indent=2)
+            print(f"[DRY-RUN] saved simulated request to {sim_path}")
     except Exception as e:
         print('[DRY-RUN] failed to save simulated request:', e)
 
@@ -155,8 +176,11 @@ async def fetch_records_list(max_records=10, timeout=8):
         ]
 
     headers = {'Content-Type': 'application/json'}
-    # tentar obter token via config/env
-    token = os.getenv('GNEXUM_TOKEN')
+    # tentar obter token via token_manager (pode efetuar login automático se necessário)
+    try:
+        token = await get_token()
+    except Exception:
+        token = None
     if token:
         headers['Authorization'] = f"Bearer {token}"
 
@@ -183,9 +207,11 @@ async def fetch_records_list(max_records=10, timeout=8):
                     print('[DRY-RUN] Gnexum returned 401 for list POST; attempting login_and_store to refresh token')
                     # tentar login automático usando token_manager e re-tentar uma vez
                     try:
-                        await login_and_store()
-                        new_token = await get_token()
+                        new_token = await login_and_store()
                         if new_token:
+                            # garantir disponibilidade imediata no processo
+                            os.environ['GNEXUM_TOKEN'] = new_token
+                            load_dotenv(os.path.join(proj_root, 'settings', '.env'), override=True)
                             headers['Authorization'] = f"Bearer {new_token}"
                             retried_after_login = True
                             # re-tentar este body com token atualizado
@@ -194,6 +220,22 @@ async def fetch_records_list(max_records=10, timeout=8):
                             except Exception as e:
                                 print(f"[DRY-RUN] Gnexum retry POST failed: {e}")
                                 resp = None
+                        else:
+                            # se login não retornou token, tentar recarregar .env e buscar token
+                            try:
+                                load_dotenv(os.path.join(proj_root, 'settings', '.env'), override=True)
+                                fallback = await get_token()
+                                if fallback:
+                                    os.environ['GNEXUM_TOKEN'] = fallback
+                                    headers['Authorization'] = f"Bearer {fallback}"
+                                    retried_after_login = True
+                                    try:
+                                        resp = await client.post(url, json=b, headers=headers)
+                                    except Exception as e:
+                                        print(f"[DRY-RUN] Gnexum retry POST failed after fallback: {e}")
+                                        resp = None
+                            except Exception as e:
+                                print('[DRY-RUN] fallback reload/get_token failed:', e)
                     except Exception as e:
                         print('[DRY-RUN] login_and_store failed:', e)
                     if not resp:
@@ -279,8 +321,6 @@ async def fetch_records_list(max_records=10, timeout=8):
     except Exception as e:
         print('[DRY-RUN] fetch_records_list error:', e)
         return []
-
-
 async def main():
     # patch client to avoid chamadas reais
     try:
@@ -315,9 +355,50 @@ async def main():
                 if tok:
                     print('[DRY-RUN] GNEXUM token available at startup')
                 else:
-                    print('[DRY-RUN] GNEXUM token not available at startup; attempted login')
+                    print('[DRY-RUN] GNEXUM token not available at startup; attempting login')
+                    try:
+                        new = await login_and_store()
+                        if new:
+                            os.environ['GNEXUM_TOKEN'] = new
+                            load_dotenv(os.path.join(proj_root, 'settings', '.env'), override=True)
+                            print('[DRY-RUN] GNEXUM login succeeded at startup')
+                        else:
+                            print('[DRY-RUN] GNEXUM login_at_startup did not return token')
+                    except Exception as e:
+                        print('[DRY-RUN] login_and_store at startup failed:', e)
             except Exception as e:
                 print('[DRY-RUN] warning: get_token/login failed at startup:', e)
+    except Exception:
+        pass
+
+    # Se estamos usando o Gnexum real, iniciar uma tarefa de background que tenta
+    # renovar o token periodicamente para evitar expirations durante execução longa.
+    refresher_task = None
+    try:
+        if use_real:
+            interval = int(os.getenv('GNEXUM_TOKEN_REFRESH_INTERVAL_SECONDS', '300') or 300)
+
+            async def _token_refresher(interval_seconds: int, stop_evt: asyncio.Event):
+                from src.integrations.simpliroute.token_manager import login_and_store
+                while not stop_evt.is_set():
+                    try:
+                        new = await login_and_store()
+                        if new:
+                            # garantir disponibilidade imediata no processo e recarregar .env
+                            os.environ['GNEXUM_TOKEN'] = new
+                            load_dotenv(os.path.join(proj_root, 'settings', '.env'), override=True)
+                            print(f"[TOKEN-REFRESH] token refreshed at {int(time.time())}")
+                        else:
+                            print(f"[TOKEN-REFRESH] login_and_store did not return a token at {int(time.time())}")
+                    except Exception as e:
+                        print('[TOKEN-REFRESH] exception during refresh attempt:', e)
+                    try:
+                        await asyncio.wait_for(stop_evt.wait(), timeout=interval_seconds)
+                    except asyncio.TimeoutError:
+                        continue
+
+            refresher_task = asyncio.create_task(_token_refresher(interval, stop_event))
+            print(f"[DRY-RUN] started GNEXUM token refresher every {interval}s")
     except Exception:
         pass
 
@@ -344,7 +425,7 @@ async def main():
     for rid, rows in grouped.items():
         # tentar buscar items detalhados para o atendimento (se aplicável)
         try:
-            items = await fetch_items_for_record(rid)
+            items = await fetch_items_for_record(rid, normalize=False)
         except Exception as e:
             print(f"[DRY-RUN] failed to fetch items for {rid}: {e}")
             items = []
@@ -357,7 +438,6 @@ async def main():
             'endereco': first.get('ENDERECO') or first.get('endereco') or first.get('address') or None,
             # suportar DT_VISITA do Gnexum como data planejada
             'eventdate': first.get('DT_VISITA') or first.get('dt_visita') or first.get('eventdate') or first.get('planned_date') or first.get('date') or None,
-            # combinar rows como items caso items vindos do Gnexum representem sub-itens
             'items': items or rows,
         }
 

@@ -29,7 +29,8 @@ async def polling_task(interval_minutes: int):
             sample = {"tpregistro": 2, "idregistro": 123, "endereco": "Rua Exemplo, 123", "eventdate": "2025-11-21"}
             # tentar popular items via Gnexum (stub ou real, dependendo de env)
             try:
-                sample_items = await fetch_items_for_record(sample.get("idregistro"))
+                # request raw rows so mapper can extract Gnexum-specific fields
+                sample_items = await fetch_items_for_record(sample.get("idregistro"), normalize=False)
                 sample["items"] = sample_items
             except Exception:
                 sample["items"] = []
@@ -53,7 +54,7 @@ async def polling_task(interval_minutes: int):
 async def lifespan(app: FastAPI):
     # obter intervalo do config/env
     try:
-        from core.config import load_config
+        from src.core.config import load_config
 
         cfg = load_config()
         interval = int(cfg.get("simpliroute", {}).get("polling_interval_minutes", 60))
@@ -131,8 +132,9 @@ async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    # Validação opcional do token do webhook: se configurado, exige header Authorization: Token <token>
-    expected = os.getenv("SIMPLIROUTE_WEBHOOK_TOKEN") or os.getenv("SIMPLIR_ROUTE_TOKEN") or os.getenv("SIMPLIROUTE_TOKEN")
+    # Validação opcional do token do webhook: se a variável específica de webhook
+    # estiver configurada (`SIMPLIR_ROUTE_WEBHOOK_TOKEN`), então exigimos o header.
+    expected = os.getenv("SIMPLIR_ROUTE_WEBHOOK_TOKEN");
     if expected:
         auth_hdr = request.headers.get("authorization") or request.headers.get("Authorization") or ""
         # suportar formas: 'Token <v>' ou 'Bearer <v>'

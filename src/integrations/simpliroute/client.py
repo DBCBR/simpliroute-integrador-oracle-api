@@ -2,7 +2,7 @@ import os
 from typing import Any, Dict, Iterable, List, Optional
 
 import httpx
-from core.encoding import dumps_utf8
+from src.core.encoding import dumps_utf8
 
 
 def _get_token(names: Iterable[str]) -> str:
@@ -35,6 +35,25 @@ async def post_simpliroute(route_payload: Dict[str, Any]) -> Optional[httpx.Resp
     else:
         body = [route_payload]
 
+    # If running in DRY_RUN mode, do not perform network calls — print payload and return simulated response
+    dry = os.getenv('SIMPLIROUTE_DRY_RUN', '0').lower() in ('1', 'true', 'yes')
+    if dry:
+        try:
+            import json
+
+            print('[DRY-RUN] SIMPLIROUTE_DRY_RUN enabled; payload preview:')
+            print(json.dumps(route_payload, ensure_ascii=False, indent=2))
+        except Exception:
+            print('[DRY-RUN] failed to serialize payload for preview')
+        # return a simulated successful response-like object
+        class _FakeResp:
+            status_code = 200
+
+            def __init__(self):
+                self.text = '{"simulated": true}'
+
+        return _FakeResp()
+
     try:
         # prune body to only fields expected by SimpliRoute to avoid sending extra info
         allowed_visit_fields = [
@@ -63,7 +82,8 @@ async def post_simpliroute(route_payload: Dict[str, Any]) -> Optional[httpx.Resp
             # prune properties subkeys if present: keep only expected property keys
             if "properties" in out and isinstance(out["properties"], dict):
                 props = out["properties"]
-                kept = {k: props[k] for k in props if k in ("PROFISSIONAL", "ESPECIALIDADE", "PERIODICIDADE")}
+                # preserve TIPOVISITA as requested, além das outras chaves
+                kept = {k: props[k] for k in props if k in ("PROFISSIONAL", "ESPECIALIDADE", "PERIODICIDADE", "TIPOVISITA")}
                 if kept:
                     out["properties"] = kept
                 else:
