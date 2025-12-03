@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import asyncio
 import json
 from datetime import datetime
@@ -7,6 +8,15 @@ from datetime import datetime
 sys.path.insert(0, os.getcwd())
 from dotenv import load_dotenv
 load_dotenv(os.path.join('settings', '.env'), override=False)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--view', help='ORACLE view to read (overrides ORACLE_VIEW env)', default=None)
+parser.add_argument('--page-size', type=int, default=50)
+parser.add_argument('--max-pages', type=int, default=100)
+args = parser.parse_args()
+
+if args.view:
+    os.environ['ORACLE_VIEW'] = args.view
 
 os.environ['USE_GNEXUM_DB'] = os.environ.get('USE_GNEXUM_DB', '1')
 os.environ['SIMPLIROUTE_DRY_RUN'] = os.environ.get('SIMPLIROUTE_DRY_RUN', '1')
@@ -41,7 +51,8 @@ async def main(page_size: int = 50, max_pages: int = 100):
         page += 1
 
     ts = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-    out_file = os.path.join(OUTPUT_DIR, f'visits_db_all_dryrun_{ts}.json')
+    view_label = os.environ.get('ORACLE_VIEW', 'unknown').lower()
+    out_file = os.path.join(OUTPUT_DIR, f'visits_db_all_{view_label}_dryrun_{ts}.json')
     with open(out_file, 'w', encoding='utf-8') as f:
         json.dump(all_visits, f, ensure_ascii=False, indent=2)
 
@@ -49,4 +60,4 @@ async def main(page_size: int = 50, max_pages: int = 100):
 
 
 if __name__ == '__main__':
-    asyncio.run(main(page_size=50, max_pages=20))
+    asyncio.run(main(page_size=args.page_size, max_pages=args.max_pages))
