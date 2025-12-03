@@ -324,7 +324,6 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["planned_date"] = payload.get("planned_date")
     ordered["programmed_date"] = payload.get("programmed_date")
     ordered["route"] = payload.get("route")
-    ordered["route_estimated_time_start"] = payload.get("route_estimated_time_start")
     ordered["route_status"] = payload.get("route_status")
     ordered["estimated_time_arrival"] = payload.get("estimated_time_arrival")
     ordered["estimated_time_departure"] = payload.get("estimated_time_departure")
@@ -377,7 +376,6 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["current_eta"] = payload.get("current_eta")
     ordered["fleet"] = payload.get("fleet")
     ordered["seller"] = payload.get("seller")
-    ordered["on_its_way"] = payload.get("on_its_way") if payload.get("on_its_way") is not None else None
     ordered["is_route_completed"] = payload.get("is_route_completed") if payload.get("is_route_completed") is not None else False
 
     # copy known property keys / values from record or rows (we don't add a `properties` block)
@@ -480,7 +478,6 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     else:
         ordered["items"] = []
 
-    ordered["on_its_way"] = None
 
     # Ensure final notes assembled from available fields (record-level or rows)
     def _first_non_empty_local(*vals):
@@ -567,7 +564,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     }
     list_keys = {"skills_required", "skills_optional", "tags", "pictures"}
     dict_keys = {"extra_field_values"}
-    bool_keys = {"priority", "has_alert", "is_route_completed", "on_its_way"}
+    bool_keys = {"priority", "has_alert", "is_route_completed"}
     numeric_keys = {"load", "load_2", "load_3", "driver", "vehicle", "priority_level"}
     coord_keys = {"latitude", "longitude"}
 
