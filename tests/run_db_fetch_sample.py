@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import asyncio
 import json
 from datetime import datetime
@@ -7,6 +8,13 @@ from datetime import datetime
 sys.path.insert(0, os.getcwd())
 from dotenv import load_dotenv
 load_dotenv(os.path.join('settings', '.env'), override=False)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--view', help='ORACLE view to read (overrides ORACLE_VIEW env)', default=None)
+args = parser.parse_args()
+
+if args.view:
+    os.environ['ORACLE_VIEW'] = args.view
 
 os.environ['USE_GNEXUM_DB'] = os.environ.get('USE_GNEXUM_DB', '1')
 os.environ['SIMPLIROUTE_DRY_RUN'] = os.environ.get('SIMPLIROUTE_DRY_RUN', '1')

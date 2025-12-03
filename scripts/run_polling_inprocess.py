@@ -45,6 +45,21 @@ import httpx
 
 # carregar config
 _CFG = load_config()
+# Se disponível, inicializar Oracle Instant Client no processo antes de qualquer uso do oracledb
+try:
+    instant_env = os.getenv('ORACLE_INSTANT_CLIENT') or _CFG.get('oracle', {}).get('instant_client')
+    if instant_env:
+        try:
+            import oracledb
+            try:
+                oracledb.init_oracle_client(lib_dir=instant_env)
+                print(f"[DRY-RUN] oracledb.init_oracle_client successful using {instant_env}")
+            except Exception as e:
+                print('[DRY-RUN] oracledb.init_oracle_client failed at startup:', e)
+        except Exception:
+            pass
+except Exception:
+    pass
 # By default do NOT persist payload artifacts to disk unless explicitly allowed via env
 # Use env `DRY_RUN_SAVE_PAYLOADS=1` to enable writing payloads (legacy behavior)
 SAVE_PAYLOADS = os.getenv('DRY_RUN_SAVE_PAYLOADS', '').lower() in ('1', 'true', 'yes') or bool(

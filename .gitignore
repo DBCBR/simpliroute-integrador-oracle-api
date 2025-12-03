@@ -41,6 +41,7 @@ htmlcov/
 # Env files and secrets
 *.env
 settings/.env
+settings/instantclient/
 Pendencias.txt
 
 # Runtime data and webhooks
