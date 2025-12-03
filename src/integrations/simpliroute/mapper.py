@@ -125,7 +125,9 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     payload["vehicle"] = _get("vehicle") or None
     payload["priority"] = bool(_get("priority") or False)
     payload["has_alert"] = bool(_get("has_alert") or False)
-    payload["priority_level"] = _get("priority_level") or None
+    # preserve numeric zero values (do not coerce falsy 0 into None)
+    pl = _get("priority_level")
+    payload["priority_level"] = pl if pl is not None else None
     payload["extra_field_values"] = _get("extra_field_values") or {}
     # also allow top-level extra fields to be included in extra_field_values
     # e.g., checkout_enfermagem, nome_profissional
@@ -149,6 +151,12 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             payload["planned_date"] = pd.split("T")[0]
     except Exception:
         pass
+
+    # Window times (delivery often uses wide windows) — prefer record values when present
+    payload["window_start"] = _get("window_start") or _get("WINDOW_START") or None
+    payload["window_end"] = _get("window_end") or _get("WINDOW_END") or None
+    payload["window_start_2"] = _get("window_start_2") or _get("WINDOW_START_2") or None
+    payload["window_end_2"] = _get("window_end_2") or _get("WINDOW_END_2") or None
 
     # loads and duration
     payload["load"] = float(_get("load") or _get("volume") or 0.0)
@@ -564,7 +572,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # If this is delivery dataset, prefer explicit delivery visit_type and notes
     if is_entrega_view:
         try:
-            ordered["visit_type"] = "entrega"
+            # deliveries in SimpliRoute often use visit_type 'rota' (route deliveries)
+            ordered["visit_type"] = "rota"
             delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
             ordered["notes"] = str(delivery_note)
         except Exception:
