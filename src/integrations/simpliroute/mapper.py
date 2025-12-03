@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+import os
 from collections import OrderedDict
 import unicodedata
 from datetime import datetime, date
@@ -69,6 +70,11 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
 
+    # Detect if this run is reading from the deliveries view.
+    # The environment variable `ORACLE_VIEW` may be set to `VWPACIENTES_ENTREGAS`.
+    view_name = os.getenv("ORACLE_VIEW", "").upper()
+    is_entrega_view = "ENTREGAS" in view_name or "ENTREGA" in view_name
+
     # Title: use `NOME_PACIENTE` when available (user requirement)
     id_at = _get("ID_ATENDIMENTO") or _get("idregistro") or _get("id")
     nome_paciente = _get("NOME_PACIENTE") or _get("nome_paciente") or _get("NOME") or _get("nome")
@@ -89,6 +95,10 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         # properties: deixar vazio aqui, vamos preencher apenas chaves úteis depois
         "properties": {},
     }
+
+    # mark source if this is a delivery dataset
+    if is_entrega_view:
+        payload["properties"]["record_type"] = "entrega"
 
     # additional top-level fields expected by SimpliRoute — fill when available, else blank/empty
     payload["tracking_id"] = _get("tracking_id") or _get("TRACKING_ID") or _get("tracking") or ""
@@ -233,42 +243,73 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     visit_type_combined = " ".join([str(x) for x in visit_type_candidates if x]).lower()
 
-    # When visit type indicates medical or nursing visit, do not include items
-    if any(tok in visit_type_combined for tok in ("medic", "médic", "enferm", "enfermeir")):
-        # explicit: no items key for médico/enfermeiro visits
-        pass
-    else:
+    # For delivery view, always try to build items from rows using delivery-oriented fields
+    if is_entrega_view:
         items = []
         for r in rows:
-            if isinstance(r, dict) and any(k in r for k in ("ESPECIALIDADE", "TIPOVISITA", "PROFISSIONAL", "PERIODICIDADE")):
-                base = _map_gnexum_row_to_item(r)
-            else:
-                base = {
-                    "title": r.get("title") or r.get("nome") or "item",
-                    "load": float(r.get("load") or 0.0),
-                    "load_2": float(r.get("load_2") or 0.0),
-                    "load_3": float(r.get("load_3") or 0.0),
-                    "reference": r.get("reference") or r.get("ref") or "",
-                    "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0),
-                    "notes": r.get("notes", ""),
-                }
-
-            # adapt item shape to SimpliRoute expected fields
+            if not isinstance(r, dict):
+                continue
+            title_item = (
+                r.get("PRODUTO")
+                or r.get("NOME")
+                or r.get("DESCRICAO")
+                or r.get("descricao")
+                or r.get("title")
+                or r.get("nome")
+                or "item"
+            )
+            qty = float(r.get("QUANTIDADE") or r.get("quantity_planned") or r.get("quantidade") or r.get("qty") or 1.0)
             item = {
-                # title, load fields kept
-                "title": base.get("title"),
+                "title": title_item,
                 "status": "pending",
-                "load": float(base.get("load") or 0.0),
-                "load_2": float(base.get("load_2") or 0.0),
-                "load_3": float(base.get("load_3") or 0.0),
-                "reference": base.get("reference") or "",
+                "load": float(r.get("load") or 0.0),
+                "load_2": float(r.get("load_2") or 0.0),
+                "load_3": float(r.get("load_3") or 0.0),
+                "reference": str(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("reference") or ""),
                 "visit": None,
-                "notes": base.get("notes") or "",
-                "quantity_planned": float(base.get("quantity_planned") or 1.0),
+                "notes": r.get("notes") or r.get("OBSERVACAO") or "",
+                "quantity_planned": qty,
                 "quantity_delivered": 0.0,
             }
             items.append(item)
         payload["items"] = items
+    else:
+        # When visit type indicates medical or nursing visit, do not include items
+        if any(tok in visit_type_combined for tok in ("medic", "médic", "enferm", "enfermeir")):
+            # explicit: no items key for médico/enfermeiro visits
+            pass
+        else:
+            items = []
+            for r in rows:
+                if isinstance(r, dict) and any(k in r for k in ("ESPECIALIDADE", "TIPOVISITA", "PROFISSIONAL", "PERIODICIDADE")):
+                    base = _map_gnexum_row_to_item(r)
+                else:
+                    base = {
+                        "title": r.get("title") or r.get("nome") or "item",
+                        "load": float(r.get("load") or 0.0),
+                        "load_2": float(r.get("load_2") or 0.0),
+                        "load_3": float(r.get("load_3") or 0.0),
+                        "reference": r.get("reference") or r.get("ref") or "",
+                        "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0),
+                        "notes": r.get("notes", ""),
+                    }
+
+                # adapt item shape to SimpliRoute expected fields
+                item = {
+                    # title, load fields kept
+                    "title": base.get("title"),
+                    "status": "pending",
+                    "load": float(base.get("load") or 0.0),
+                    "load_2": float(base.get("load_2") or 0.0),
+                    "load_3": float(base.get("load_3") or 0.0),
+                    "reference": base.get("reference") or "",
+                    "visit": None,
+                    "notes": base.get("notes") or "",
+                    "quantity_planned": float(base.get("quantity_planned") or 1.0),
+                    "quantity_delivered": 0.0,
+                }
+                items.append(item)
+            payload["items"] = items
 
     # assemble final payload as OrderedDict to respect the exact field order required
     def _norm_str(s: Any) -> Any:
@@ -519,6 +560,15 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         ordered["notes"] = final_esp
     elif final_tip:
         ordered["notes"] = final_tip
+
+    # If this is delivery dataset, prefer explicit delivery visit_type and notes
+    if is_entrega_view:
+        try:
+            ordered["visit_type"] = "entrega"
+            delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
+            ordered["notes"] = str(delivery_note)
+        except Exception:
+            ordered["notes"] = ordered.get("notes") or "ENTREGA"
 
     # Normalize strings throughout the ordered payload (NFC)
     ordered = _normalize_obj(ordered)
