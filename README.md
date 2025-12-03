@@ -91,6 +91,29 @@ pytest -q
 
 ---
 
+## Execução em modo seguro (dry-run)
+
+Para testar o polling e a geração de payloads sem enviar nada ao SimpliRoute, use o runner in-process criado:
+
+```powershell
+# ativar virtualenv
+& ".\.venv\Scripts\Activate.ps1"
+# rodar por 60 segundos (salva payloads em data/output/payloads)
+$env:RUN_DURATION_SECONDS=60
+$env:RUN_POLLING_INTERVAL_MINUTES=1
+python scripts/run_polling_inprocess.py
+```
+
+O runner fará chamadas reais ao Gnexum (autenticado com `settings/.env`) para buscar items, mas irá simular e SALVAR os payloads em `data/output/payloads/` em vez de enviá-los ao SimpliRoute.
+
+Use `RUN_POLLING_INTERVAL_MINUTES` para ajustar o intervalo do polling durante testes, e `RUN_DURATION_SECONDS` para limitar o tempo de execução.
+
+Por padrão o comportamento de persistência é controlado por `settings/config.yaml` em `simpliroute.save_payloads` (padrão `true`). Quando habilitado, além dos arquivos JSON em `data/output/payloads/`, o runner grava um CSV resumo em `data/output/payloads_summary.csv` contendo: `ts, source_ident, title, filename, status_code`.
+
+---
+
+---
+
 ## Fluxo de contribuição
 
 - Crie branches a partir de `dev` para cada feature: `feature/<nome>`.

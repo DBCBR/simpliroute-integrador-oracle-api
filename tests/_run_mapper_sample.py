@@ -1,0 +1,68 @@
+import sys, os, json
+sys.path.insert(0, os.getcwd())
+from src.integrations.simpliroute.mapper import build_visit_payload
+
+sample = {
+    "id": 740909094,
+    "order": 1,
+    "tracking_id": "SR72817002026685",
+    "status": "completed",
+    "title": "Lorenzo Figueira Moraes Cardoso",
+    "address": "Av. Ana Dantas, 1779 - Xerém, Duque de Caxias - RJ, 25250-415, Brasil",
+    "latitude": "-22.585670",
+    "longitude": "-43.286387",
+    "load": 0.0,
+    "load_2": 0.0,
+    "load_3": 0.0,
+    "window_start": "00:00:00",
+    "window_end": "23:59:00",
+    "window_start_2": "23:59:00",
+    "window_end_2": "23:59:00",
+    "duration": "01:00:00",
+    "contact_name": "vinicius (Pai)",
+    "contact_phone": "21986847589",
+    "contact_email": "",
+    "reference": "37975",
+    "notes": "Enfermagem Pediatria",
+    "skills_required": [],
+    "skills_optional": [],
+    "tags": [],
+    "planned_date": "2025-12-02",
+    "programmed_date": "2025-12-02",
+    "route": "6caa4456-608a-41e6-a31b-9d05b21e5280",
+    "route_estimated_time_start": "08:00:00",
+    "route_status": "started",
+    "estimated_time_arrival": "08:57:00",
+    "estimated_time_departure": "09:57:00",
+    "checkin_time": "2025-12-02T13:23:41.308000Z",
+    "checkout_time": "2025-12-02T14:05:27.702000Z",
+    "checkout_latitude": "-22.584234",
+    "checkout_longitude": "-43.288238",
+    "checkout_comment": "Atendimento ok",
+    "checkout_observation": None,
+    "signature": None,
+    "pictures": [],
+    "created": "2025-12-01T19:28:01.700114Z",
+    "modified": "2025-12-02T14:05:30.879534Z",
+    "eta_predicted": "2025-12-02T08:57:00-03:00",
+    "eta_current": "2025-12-02T08:57:00-03:00",
+    "driver": 469683,
+    "vehicle": 628917,
+    "priority": False,
+    "has_alert": False,
+    "priority_level": 0,
+    "extra_field_values": {
+        "checkout_enfermagem": "VISITA REALIZADA",
+        "nome_profissional": "Kezzani Ramos de Souza Coelho"
+    },
+    "geocode_alert": None,
+    "visit_type": "enf_visit",
+    "current_eta": "2025-12-02T12:55:00Z",
+    "fleet": None,
+    "on_its_way": None,
+    "seller": None,
+    "is_route_completed": False
+}
+
+out = build_visit_payload(sample)
+print(json.dumps(out, indent=2, ensure_ascii=False))

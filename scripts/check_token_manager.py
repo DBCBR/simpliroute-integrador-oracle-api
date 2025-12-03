@@ -1,7 +1,14 @@
-import asyncio
-import sys
-sys.path.insert(0, "/app")
-from src.integrations.simpliroute import token_manager
+
+"""
+Removido: script utilitário para depuração do token_manager.
+Preservado como placeholder. Use o histórico Git para restaurar se necessário.
+"""
+
+def main():
+    print('check_token_manager.py: removido — utilitário não essencial')
+
+if __name__ == '__main__':
+    main()
 
 
 async def main():

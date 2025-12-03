@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from .mapper import build_visit_payload
 from .client import post_simpliroute, post_gnexum_update
 from .gnexum import fetch_items_for_record
-from . import token_manager
+from .token_manager import get_token, login_and_store
 
 
 async def polling_task(interval_minutes: int):
@@ -29,7 +29,8 @@ async def polling_task(interval_minutes: int):
             sample = {"tpregistro": 2, "idregistro": 123, "endereco": "Rua Exemplo, 123", "eventdate": "2025-11-21"}
             # tentar popular items via Gnexum (stub ou real, dependendo de env)
             try:
-                sample_items = await fetch_items_for_record(sample.get("idregistro"))
+                # request raw rows so mapper can extract Gnexum-specific fields
+                sample_items = await fetch_items_for_record(sample.get("idregistro"), normalize=False)
                 sample["items"] = sample_items
             except Exception:
                 sample["items"] = []
@@ -53,34 +54,35 @@ async def polling_task(interval_minutes: int):
 async def lifespan(app: FastAPI):
     # obter intervalo do config/env
     try:
-        from core.config import load_config
+        from src.core.config import load_config
 
         cfg = load_config()
         interval = int(cfg.get("simpliroute", {}).get("polling_interval_minutes", 60))
     except Exception:
         interval = int(os.getenv("POLLING_INTERVAL_MINUTES", 60))
 
+    # garantir que o token do Gnexum esteja atualizado ao iniciar
+    try:
+        # tenta obter token válido (get_token fará login se necessário)
+        tok = None
+        try:
+            tok = await get_token()
+        except Exception:
+            # se get_token não estiver disponível de forma assíncrona, tentar login
+            try:
+                await login_and_store()
+            except Exception:
+                pass
+        if tok:
+            print("[startup] GNEXUM token present/updated")
+        else:
+            print("[startup] GNEXUM token not available after login attempt")
+    except Exception:
+        # garantir que falhas no refresh de token não impeçam o app de subir
+        print("[startup] warning: failed to refresh GNEXUM token")
+
     # iniciar tarefa em background
     app.state._polling_task = asyncio.create_task(polling_task(interval))
-    # token refresh task: chama periodicamente token_manager.get_token() para garantir token válido
-    try:
-        refresh_interval = int(os.getenv("GNEXUM_TOKEN_REFRESH_INTERVAL", 300))
-    except Exception:
-        refresh_interval = 300
-    async def _token_refresh_loop():
-        while True:
-            try:
-                # get_token fará login automático se necessário
-                await token_manager.get_token()
-            except Exception as e:
-                print(f"[token_refresh] erro: {e}")
-            try:
-                await asyncio.sleep(refresh_interval)
-            except asyncio.CancelledError:
-                print("[token_refresh] cancelado — encerrando")
-                break
-
-    app.state._token_refresh_task = asyncio.create_task(_token_refresh_loop())
     try:
         yield
     finally:
@@ -89,13 +91,6 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await task
-            except Exception:
-                pass
-        t2 = getattr(app.state, "_token_refresh_task", None)
-        if t2:
-            t2.cancel()
-            try:
-                await t2
             except Exception:
                 pass
 
@@ -137,8 +132,9 @@ async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    # Validação opcional do token do webhook: se configurado, exige header Authorization: Token <token>
-    expected = os.getenv("SIMPLIROUTE_WEBHOOK_TOKEN") or os.getenv("SIMPLIR_ROUTE_TOKEN") or os.getenv("SIMPLIROUTE_TOKEN")
+    # Validação opcional do token do webhook: se a variável específica de webhook
+    # estiver configurada (`SIMPLIR_ROUTE_WEBHOOK_TOKEN`), então exigimos o header.
+    expected = os.getenv("SIMPLIR_ROUTE_WEBHOOK_TOKEN");
     if expected:
         auth_hdr = request.headers.get("authorization") or request.headers.get("Authorization") or ""
         # suportar formas: 'Token <v>' ou 'Bearer <v>'

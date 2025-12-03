@@ -1,3 +1,91 @@
+import os
+import asyncio
+from types import SimpleNamespace
+
+import src.integrations.simpliroute.token_manager as tm
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class FakeAsyncClient:
+    def __init__(self, *args, **kwargs):
+        self._payload = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, json=None, data=None, headers=None):
+        # return a successful refresh response
+        return FakeResponse(200, {"access_token": "new-token-xyz", "refresh_token": "new-refresh-abc", "expires_in": 3600})
+
+
+def test_refresh_and_store_monkeypatch(monkeypatch):
+    env_path = os.path.join("settings", ".env")
+    # backup if exists
+    bak = None
+    if os.path.exists(env_path):
+        bak = env_path + ".bak"
+        os.rename(env_path, bak)
+
+    try:
+        # ensure env variables present
+        os.environ.pop("GNEXUM_TOKEN", None)
+        os.environ["GNEXUM_REFRESH_TOKEN"] = "old-refresh"
+        os.environ["GNEXUM_TOKEN_REFRESH_URL"] = "https://example.local/refresh"
+
+        # monkeypatch httpx.AsyncClient used in module
+        monkeypatch.setattr(tm, "httpx", SimpleNamespace(AsyncClient=FakeAsyncClient))
+
+        token = asyncio.run(tm.refresh_and_store())
+        assert token == "new-token-xyz"
+
+        # settings/.env should contain the new token (loadable)
+        assert os.path.exists(env_path)
+        with open(env_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "GNEXUM_TOKEN=new-token-xyz" in content
+        assert "GNEXUM_REFRESH_TOKEN=new-refresh-abc" in content
+
+    finally:
+        # cleanup: restore backup
+        if bak and os.path.exists(bak):
+            if os.path.exists(env_path):
+                os.remove(env_path)
+            os.rename(bak, env_path)
+
+
+def test_get_token_uses_refresh(monkeypatch):
+    # ensure no GNEXUM_TOKEN exists so get_token will attempt refresh
+    os.environ.pop("GNEXUM_TOKEN", None)
+    os.environ["GNEXUM_REFRESH_TOKEN"] = "old-refresh"
+    os.environ["GNEXUM_TOKEN_REFRESH_URL"] = "https://example.local/refresh"
+
+    monkeypatch.setattr(tm, "httpx", SimpleNamespace(AsyncClient=FakeAsyncClient))
+
+    env_path = os.path.join("settings", ".env")
+    bak = None
+    if os.path.exists(env_path):
+        bak = env_path + ".bak"
+        os.rename(env_path, bak)
+    try:
+        token = asyncio.run(tm.get_token())
+        assert token == "new-token-xyz"
+    finally:
+        # restore backup
+        if bak and os.path.exists(bak):
+            if os.path.exists(env_path):
+                os.remove(env_path)
+            os.rename(bak, env_path)
 import asyncio
 import types
 import os
