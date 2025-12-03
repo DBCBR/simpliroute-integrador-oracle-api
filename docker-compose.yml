@@ -8,8 +8,9 @@ services:
     env_file:
       - ./settings/.env
     volumes:
-      - ./:/app:ro
-      - ./settings:/app/settings:rw
+      - ./:/app:rw
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
     healthcheck:
       # Use readiness endpoint so the container only reports healthy
       # after the app completed startup and required background tasks are up.
