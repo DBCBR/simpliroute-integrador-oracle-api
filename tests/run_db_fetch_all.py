@@ -39,12 +39,44 @@ async def main(page_size: int = 50, max_pages: int = 100):
         print('  got', len(rows), 'rows')
         if not rows:
             break
-        for r in rows:
-            try:
-                v = build_visit_payload(r)
-                all_visits.append(v)
-            except Exception as e:
-                print('  mapper error:', e)
+        # If rows contain item-level columns (ITEM_ID/ITEM_TITLE), group by ID_ATENDIMENTO
+        if rows and any('ITEM_ID' == k or k.upper().startswith('ITEM_') for k in rows[0].keys()):
+            groups = {}
+            for r in rows:
+                rid = r.get('ID_ATENDIMENTO') or r.get('REFERENCE') or r.get('idregistro') or r.get('id')
+                if rid is None:
+                    # fallback: use TITLE as grouping key when id absent
+                    rid = r.get('TITLE') or r.get('REFERENCE')
+                key = str(rid)
+                if key not in groups:
+                    groups[key] = {'base': {}, 'items': []}
+                    # copy base attributes from first row
+                    groups[key]['base'] = dict(r)
+                # build item from row
+                item = {
+                    'title': r.get('ITEM_TITLE') or r.get('ITEM') or r.get('PRODUTO') or r.get('NOME'),
+                    'reference': r.get('ITEM_REFERENCE') or r.get('ITEM_REF') or r.get('ITEM_REFERENCE') or r.get('ITEM_REFERENCE'),
+                    'quantity_planned': float(r.get('QUANTITY_PLANNED') or r.get('QUANTITY') or r.get('QUANTIDADE') or 1.0),
+                    'load': float(r.get('LOAD') or 0.0),
+                }
+                groups[key]['items'].append(item)
+
+            # build combined records
+            for g in groups.values():
+                rec = dict(g['base'])
+                rec['items'] = g['items']
+                try:
+                    v = build_visit_payload(rec)
+                    all_visits.append(v)
+                except Exception as e:
+                    print('  mapper error:', e)
+        else:
+            for r in rows:
+                try:
+                    v = build_visit_payload(r)
+                    all_visits.append(v)
+                except Exception as e:
+                    print('  mapper error:', e)
         if len(rows) < page_size:
             break
         offset += page_size

@@ -62,10 +62,47 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     - adiciona `properties.source` e `properties.source_ident` para rastreabilidade
     """
     # suportar chaves vindas do Gnexum que podem estar em CAIXA ALTA
+    def _normalize_key_name(s: str) -> str:
+        try:
+            s = str(s)
+        except Exception:
+            return str(s)
+        s = s.strip().lower()
+        # remove accents
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        # keep only alnum and underscore
+        s = "".join(c for c in s if c.isalnum() or c == "_")
+        return s
+
     def _get(k, *alts, default=None):
+        # try exact keys first
         for key in (k,) + alts:
             if key in record and record.get(key) is not None:
                 return record.get(key)
+        # case/format-insensitive lookup: normalize keys and compare
+        target_names = [str(x) for x in (k,) + alts if x]
+        target_norms = {_normalize_key_name(t): t for t in target_names}
+        for rec_key, rec_val in record.items():
+            if rec_val is None:
+                continue
+            rn = _normalize_key_name(rec_key)
+            if rn in target_norms:
+                return rec_val
+        # fallback: try to match by common aliases (e.g., ITEM_TITLE -> title)
+        aliases = {
+            'item_title': ('item_title', 'produto', 'nome', 'title'),
+            'quantity_planned': ('quantity_planned', 'quantidade', 'qty'),
+            'planned_date': ('planned_date', 'dt_visita', 'eventdate'),
+            'address': ('address', 'endereco', 'endereco_geolocalizacao'),
+            'contact_phone': ('contact_phone', 'telefones', 'contact_phone'),
+        }
+        for alias_key, candidates in aliases.items():
+            if _normalize_key_name(k) == alias_key:
+                for c in candidates:
+                    for rec_key, rec_val in record.items():
+                        if _normalize_key_name(rec_key) == _normalize_key_name(c) and rec_val not in (None, ''):
+                            return rec_val
         return default
 
     tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
