@@ -294,15 +294,24 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         for r in rows:
             if not isinstance(r, dict):
                 continue
-            title_item = (
-                r.get("PRODUTO")
-                or r.get("NOME")
-                or r.get("DESCRICAO")
-                or r.get("descricao")
-                or r.get("title")
-                or r.get("nome")
-                or "item"
-            )
+            # try several possible field names used in delivery views
+            title_candidates = [
+                "PRODUTO",
+                "NOME",
+                "NOME_MATERIAL",
+                "NOME_MATERIAL".lower(),
+                "DESCRICAO",
+                "descricao",
+                "title",
+                "nome",
+            ]
+            title_item = None
+            for cand in title_candidates:
+                if cand in r and r.get(cand) not in (None, ""):
+                    title_item = r.get(cand)
+                    break
+            if not title_item:
+                title_item = "item"
             qty = float(r.get("QUANTIDADE") or r.get("quantity_planned") or r.get("quantidade") or r.get("qty") or 1.0)
             item = {
                 "title": title_item,
