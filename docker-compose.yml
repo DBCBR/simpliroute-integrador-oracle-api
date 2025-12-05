@@ -1,22 +1,37 @@
+x-cli-env: &cli-env
+  ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
+
 services:
-  simpliroute:
+  simpliroute_cli: &cli-base
     build: .
-    container_name: simpliroute_service
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    container_name: simpliroute_cli
+    restart: "no"
     env_file:
       - ./settings/.env
+    environment:
+      <<: *cli-env
     volumes:
       - ./:/app:rw
       - ./settings:/app/settings:ro
       - ./data/output:/app/data/output:rw
-    healthcheck:
-      # Use readiness endpoint so the container only reports healthy
-      # after the app completed startup and required background tasks are up.
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ready || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      # Give the app more time to start and the polling task to initialize
-      start_period: 30s
+
+  simpliroute_cli_limit1:
+    <<: *cli-base
+    container_name: simpliroute_cli_limit1
+    environment:
+      <<: *cli-env
+      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1 --send"
+
+  simpliroute_cli_preview:
+    <<: *cli-base
+    container_name: simpliroute_cli_preview
+    environment:
+      <<: *cli-env
+      SIMPLIROUTE_AUTO_COMMAND: "preview"
+
+  simpliroute_cli_preview_limit1:
+    <<: *cli-base
+    container_name: simpliroute_cli_preview_limit1
+    environment:
+      <<: *cli-env
+      SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"

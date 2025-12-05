@@ -1,132 +1,41 @@
-# Integrador SR — Integração SimpliRoute
+# Integrador SR → SimpliRoute
 
-Integração entre o sistema IW (Gnexum) e a plataforma SimpliRoute.
-Este repositório contém um serviço Python mínimo que implementa:
+Ferramenta de linha de comando para coletar registros das views Oracle disponibilizadas pelo IW, mapear para o formato do SimpliRoute e enviar/visualizar os payloads gerados.
 
-- Endpoint webhook para receber notificações do SimpliRoute.
-- Tarefa de polling configurável para buscar registros no Gnexum.
-- Clientes HTTP e mapeadores para construir payloads conforme o PDD.
+## Execução principal
+- Configure as variáveis de ambiente ORACLE_* e SIMPLIROUTE_* conforme `settings/config.yaml`.
+- Rode `python -m src.cli.send_to_simpliroute preview` para gerar payloads sem enviá-los (o CLI salva em `data/output/`).
+- Rode `python -m src.cli.send_to_simpliroute send --send` para gerar e enviar os payloads ao SimpliRoute.
+- O subcomando `auto` executa automaticamente um comando pré-configurado (padrão=`send --send`).
 
-IMPORTANTE: não commite credenciais. Utilize `settings/.env` (a partir de
-`settings/.env.example`) para configurar tokens localmente.
+## Origem padrão dos dados
+- A CLI agora consulta o Oracle **por padrão**, usando as views definidas nas variáveis `ORACLE_VIEW_*` ou `ORACLE_VIEWS`.
+- Não é mais necessário informar `--from-db`. Esse parâmetro passa a ser apenas um atalho opcional para explicitar o comportamento padrão.
+- Para usar um arquivo local com registros (por exemplo, exportados de um teste anterior), informe `--file caminho/do/arquivo.json`. Quando `--file` é usado, nenhuma consulta ao Oracle é realizada.
+- As opções `--view` e `--views` só estão disponíveis quando a origem é o Oracle (isto é, quando `--file` não foi passado).
 
----
+## Demais flags úteis
+- `--limit`: controla quantos registros são lidos por view (padrão definido por `ORACLE_FETCH_LIMIT`, caindo para 25 se ausente).
+- `--where`: injeta um filtro adicional na consulta Oracle (por exemplo, `--where "DT_ENTREGA >= SYSDATE - 1"`).
+- `--no-save`: exibe os payloads no stdout em vez de gravar arquivo ao rodar `preview`.
+- `--send`: habilita o envio HTTP ao SimpliRoute quando usando o subcomando `send`.
 
-## Estrutura do repositório
+Consulte `python -m src.cli.send_to_simpliroute --help` para detalhes completos.
 
-- `src/` — código fonte do serviço e integrações.
-- `settings/` — arquivo `config.yaml` e exemplo de variáveis de ambiente.
-- `data/` — arquivos de input/output e dados gerados (não versionados).
-- `tests/` — testes unitários.
+## Execução automática via Docker
+- O `Dockerfile` e os arquivos `docker-compose*.yml` executam `python -m src.cli.send_to_simpliroute auto` por padrão, ou seja, o container já dispara `send --send` assim que sobe.
+- Para alterar o comando executado automaticamente, defina `SIMPLIROUTE_AUTO_COMMAND` (ex.: `preview --limit 5`) no `settings/.env` ou passe `--command` ao chamar `python -m src.cli.send_to_simpliroute auto`.
+- Se quiser apenas inspecionar os payloads sem enviar, defina `SIMPLIROUTE_DRY_RUN=1` no mesmo arquivo ou remova a flag `--send` no valor de `SIMPLIROUTE_AUTO_COMMAND`.
+- A execução manual permanece disponível: basta rodar `python -m src.cli.send_to_simpliroute <subcomando>` em qualquer ambiente com Python.
+- Compose oferece serviços prontos:
+	- `simpliroute_cli` (ou `integrador` no `docker-compose.prod.yml`): fluxo completo, envia todos os registros respeitando `ORACLE_FETCH_LIMIT`.
+	- `simpliroute_cli_limit1` / `integrador_limit1`: envia apenas 1 visita + 1 entrega (`send --limit 1 --send`).
+	- `simpliroute_cli_preview` / `integrador_preview`: gera payloads sem enviar (`preview`).
+	- `simpliroute_cli_preview_limit1` / `integrador_preview_limit1`: preview limitado a 1 registro por view.
+- Para executar basta escolher o serviço, por exemplo `docker compose up simpliroute_cli_limit1` ou `docker compose -f docker-compose.prod.yml up integrador_preview`.
 
----
-
-## Requisitos
-
-- Python 3.11+
-- Dependências listadas em `requirements.txt`.
-
-Recomendado: criar um virtualenv antes de instalar as dependências.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
----
-
-## Configuração local
-
-1. Copie o arquivo de exemplo de variáveis de ambiente:
-
-```powershell
-copy settings\.env.example settings\.env
-```
-
-2. Preencha `settings/.env` com os tokens necessários (não commite este
-   arquivo). O arquivo `Pendencias.txt` contém tokens locais — mantenha
-   este arquivo fora do controle de versão.
-
----
-
-## Executando em desenvolvimento
-
-```powershell
-# executar a API com uvicorn
-python -m uvicorn src.integrations.simpliroute.app:app --host 0.0.0.0 --port 8000
-```
-
-O webhook ficará disponível em `http://localhost:8000/webhook/simpliroute`.
-
----
-
-## Docker (desenvolvimento)
-
-O projeto inclui `Dockerfile` e `docker-compose.yml`. Para subir o serviço:
-
-```powershell
-docker-compose build
-docker-compose up -d
-```
-
-Parar e remover:
-
-```powershell
-docker-compose down
-```
-
-OBS: o `docker-compose.yml` usa `settings/.env` como `env_file`. Não
-commite variáveis sensíveis.
-
----
-
-## Testes
-
-Executar a suíte de testes com `pytest`:
-
-```powershell
-pytest -q
-```
-
----
-
-## Execução em modo seguro (dry-run)
-
-Para testar o polling e a geração de payloads sem enviar nada ao SimpliRoute, use o runner in-process criado:
-
-```powershell
-# ativar virtualenv
-& ".\.venv\Scripts\Activate.ps1"
-# rodar por 60 segundos (salva payloads em data/output/payloads)
-$env:RUN_DURATION_SECONDS=60
-$env:RUN_POLLING_INTERVAL_MINUTES=1
-python scripts/run_polling_inprocess.py
-```
-
-O runner fará chamadas reais ao Gnexum (autenticado com `settings/.env`) para buscar items, mas irá simular e SALVAR os payloads em `data/output/payloads/` em vez de enviá-los ao SimpliRoute.
-
-Use `RUN_POLLING_INTERVAL_MINUTES` para ajustar o intervalo do polling durante testes, e `RUN_DURATION_SECONDS` para limitar o tempo de execução.
-
-Por padrão o comportamento de persistência é controlado por `settings/config.yaml` em `simpliroute.save_payloads` (padrão `true`). Quando habilitado, além dos arquivos JSON em `data/output/payloads/`, o runner grava um CSV resumo em `data/output/payloads_summary.csv` contendo: `ts, source_ident, title, filename, status_code`.
-
----
-
----
-
-## Fluxo de contribuição
-
-- Crie branches a partir de `dev` para cada feature: `feature/<nome>`.
-- Faça merge das features em `dev` após revisão; apague a branch de
-  feature depois do merge (o `dev` permanece até aprovação para `main`).
-
----
-
-## Referências
-
-- Documento PDD: `📄 PDD - Integração SimpliRoute (IW).md` (detalhes funcionais).
-
----
-
-Se quiser, posso adicionar um README menor em `src/integrations/simpliroute/`
-com exemplos de payload e instruções específicas da integração.
+## Estrutura do Oracle Instant Client
+- Coloque os pacotes dentro de `settings/instantclient/`:
+	- `settings/instantclient/windows/`: descompacte aqui o Instant Client usado no Windows (por exemplo `instantclient_23_0`).
+	- `settings/instantclient/linux/`: armazene os `.zip` do Instant Client Linux (Basic/Basic Lite). O `Dockerfile` os instalará em `/opt/oracle/instantclient` automaticamente.
+- Se `ORACLE_INSTANT_CLIENT` não estiver definido, o CLI procura automaticamente em `settings/instantclient/windows/instantclient_*`. Ainda é possível definir a variável manualmente caso o cliente esteja em outro caminho.

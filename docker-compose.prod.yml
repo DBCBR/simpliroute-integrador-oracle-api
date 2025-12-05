@@ -1,6 +1,10 @@
 version: '3.8'
+
+x-integrador-env: &integrador-env
+  ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
+
 services:
-  integrador:
+  integrador: &integrador-base
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,16 +12,31 @@ services:
     env_file:
       - ./settings/.env
     environment:
-      - USE_GNEXUM_DB=1
-      - SIMPLIROUTE_DRY_RUN=1
-      - DRY_RUN_SAVE_PAYLOADS=1
-      - ORACLE_INSTANT_CLIENT=/opt/oracle/instantclient
+      <<: *integrador-env
     volumes:
       - ./settings:/app/settings:ro
       - ./data/output:/app/data/output:rw
-    restart: unless-stopped
+    restart: "no"
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+  integrador_limit1:
+    <<: *integrador-base
+    environment:
+      <<: *integrador-env
+      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1 --send"
+
+  integrador_preview:
+    <<: *integrador-base
+    environment:
+      <<: *integrador-env
+      SIMPLIROUTE_AUTO_COMMAND: "preview"
+
+  integrador_preview_limit1:
+    <<: *integrador-base
+    environment:
+      <<: *integrador-env
+      SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"

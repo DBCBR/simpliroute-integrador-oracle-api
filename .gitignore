@@ -41,7 +41,6 @@ htmlcov/
 # Env files and secrets
 *.env
 settings/.env
-settings/instantclient/
 Pendencias.txt
 
 # Runtime data and webhooks
@@ -222,3 +221,9 @@ PDD*.md
 
 # ignore generated sample payloads and simulated requests
 data/output/
+settings/instantclient/**
+!settings/instantclient/README.md
+!settings/instantclient/windows/
+!settings/instantclient/windows/.gitkeep
+!settings/instantclient/linux/
+!settings/instantclient/linux/.gitkeep
