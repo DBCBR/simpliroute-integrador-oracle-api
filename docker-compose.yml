@@ -14,6 +14,7 @@ services:
       - ./:/app:rw
       - ./settings:/app/settings:ro
       - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
 
   simpliroute_cli_limit1:
     <<: *cli-base
@@ -35,3 +36,17 @@ services:
     environment:
       <<: *cli-env
       SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
+
+  simpliroute_service:
+    <<: *cli-base
+    container_name: simpliroute_service
+    command: >-
+      uvicorn src.integrations.simpliroute.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

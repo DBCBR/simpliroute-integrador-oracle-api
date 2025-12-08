@@ -42,10 +42,6 @@ def load_config() -> Dict[str, Any]:
 
     # Expor variáveis relevantes de integração no dicionário de configuração
     cfg.setdefault("integrations", {})
-    cfg["integrations"]["use_real_gnexum"] = os.getenv("USE_REAL_GNEXUM", "false").lower() in ("1", "true", "yes")
-    cfg["integrations"]["gnexum_api_url"] = os.getenv("GNEXUM_API_URL")
-    cfg["integrations"]["gnexum_token"] = os.getenv("GNEXUM_TOKEN")
-    cfg["integrations"]["gnexum_refresh_token"] = os.getenv("GNEXUM_REFRESH_TOKEN")
     cfg["integrations"]["simpliroute_api_base"] = os.getenv("SIMPLIROUTE_API_BASE") or cfg.get("simpliroute_api_base")
 
     return cfg

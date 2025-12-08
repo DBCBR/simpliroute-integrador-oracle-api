@@ -51,7 +51,7 @@ sample = {
     'priority_level': 0,
     'extra_field_values': {'conferencia_solar': 'NÃO', 'checkout_rota': ''},
     'geocode_alert': None,
-    'visit_type': 'rota',
+    'visit_type': 'rota_log',
     'current_eta': '2025-12-03T14:41:00Z',
     'fleet': None,
     'on_its_way': None,
