@@ -22,12 +22,12 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 
 # Copia Instant Client zip (se presente) e o instala em /opt/oracle/instantclient
-# Espera-se que o usuário coloque os arquivos zip em settings/instantclient/
-RUN if [ -d "/app/settings/instantclient" ]; then \
-            echo "Found settings/instantclient, installing..."; \
-            ls -la /app/settings/instantclient; \
+# Espera-se que o usuário coloque os arquivos zip Linux em settings/instantclient/linux/
+RUN if [ -d "/app/settings/instantclient/linux" ]; then \
+            echo "Found settings/instantclient/linux, installing..."; \
+            ls -la /app/settings/instantclient/linux; \
             mkdir -p /opt/oracle; \
-            for z in /app/settings/instantclient/*.zip; do \
+            for z in /app/settings/instantclient/linux/*.zip; do \
                 if [ -f "$z" ]; then \
                     unzip -q "$z" -d /opt; \
                 fi; \
@@ -50,7 +50,5 @@ RUN if [ -d "/app/settings/instantclient" ]; then \
 ENV ORACLE_INSTANT_CLIENT=/opt/oracle/instantclient
 ENV LD_LIBRARY_PATH=/opt/oracle/instantclient:$LD_LIBRARY_PATH
 
-EXPOSE 8000
-
-# Comando padrão para iniciar o serviço
-CMD ["uvicorn", "src.integrations.simpliroute.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Comando padrão: executa o modo automático que, por padrão, envia os dados ao SimpliRoute
+CMD ["python", "-m", "src.cli.send_to_simpliroute", "auto"]
