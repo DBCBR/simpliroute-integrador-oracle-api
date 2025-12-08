@@ -455,7 +455,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     if esp_lower and ("enferm" in esp_lower or "enfermeito" in esp_lower):
         visit_type_key = "enf_visit"
     elif esp_lower and any(tok in esp_lower for tok in ("medico", "médico", "med", "pediatria")):
-        visit_type_key = "médica"
+        visit_type_key = "med_visit"
 
     # Definir visit_type APENAS quando houver mapeamento conhecido a partir de ESPECIALIDADE.
     if visit_type_key:
@@ -467,7 +467,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             if "enferm" in vt_low:
                 ordered["visit_type"] = "enf_visit"
             elif any(tok in vt_low for tok in ("med", "méd", "pediatria")):
-                ordered["visit_type"] = "médica"
+                ordered["visit_type"] = "med_visit"
     ordered["current_eta"] = payload.get("current_eta")
     ordered["fleet"] = payload.get("fleet")
     ordered["seller"] = payload.get("seller")
@@ -618,8 +618,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # If this is delivery dataset, prefer explicit delivery visit_type and notes
     if is_entrega_view:
         try:
-            # deliveries in SimpliRoute often use visit_type 'rota' (route deliveries)
-            ordered["visit_type"] = "rota"
+            # deliveries em produção devem usar o visit_type 'rota_log'
+            ordered["visit_type"] = "rota_log"
             delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
             ordered["notes"] = str(delivery_note)
         except Exception:

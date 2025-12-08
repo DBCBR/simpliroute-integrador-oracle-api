@@ -1,4 +1,4 @@
-"""Pacote para integrações específicas (SimpliRoute, Gnexum, etc.).
+"""Pacote para integrações específicas (SimpliRoute, etc.).
 Arquivos concretos das integrações ficam em subpacotes.
 """
 

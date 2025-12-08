@@ -1,6 +1,6 @@
 # Integrador SR → SimpliRoute
 
-Ferramenta de linha de comando para coletar registros das views Oracle disponibilizadas pelo IW, mapear para o formato do SimpliRoute e enviar/visualizar os payloads gerados.
+Ferramenta de linha de comando para coletar registros das views Oracle disponibilizadas pelo IW, mapear para o formato do SimpliRoute e enviar/visualizar os payloads gerados. O repositório também inclui um serviço FastAPI que roda continuamente (polling + webhook) para automatizar o fluxo a cada hora.
 
 ## Execução principal
 - Configure as variáveis de ambiente ORACLE_* e SIMPLIROUTE_* conforme `settings/config.yaml`.
@@ -22,17 +22,28 @@ Ferramenta de linha de comando para coletar registros das views Oracle disponibi
 
 Consulte `python -m src.cli.send_to_simpliroute --help` para detalhes completos.
 
+### Tipos de visita enviados ao SimpliRoute
+- Visitas médicas são marcadas automaticamente como `visit_type = med_visit`.
+- Visitas de enfermagem usam `visit_type = enf_visit`.
+- Entregas (`TPREGISTRO = 2` ou views `ENTREGAS`) enviam `visit_type = rota_log`.
+- Valores diferentes vindos do IW são ignorados para manter o catálogo alinhado às tags homologadas pelo time Solar Cuidados.
+
 ## Execução automática via Docker
-- O `Dockerfile` e os arquivos `docker-compose*.yml` executam `python -m src.cli.send_to_simpliroute auto` por padrão, ou seja, o container já dispara `send --send` assim que sobe.
-- Para alterar o comando executado automaticamente, defina `SIMPLIROUTE_AUTO_COMMAND` (ex.: `preview --limit 5`) no `settings/.env` ou passe `--command` ao chamar `python -m src.cli.send_to_simpliroute auto`.
-- Se quiser apenas inspecionar os payloads sem enviar, defina `SIMPLIROUTE_DRY_RUN=1` no mesmo arquivo ou remova a flag `--send` no valor de `SIMPLIROUTE_AUTO_COMMAND`.
-- A execução manual permanece disponível: basta rodar `python -m src.cli.send_to_simpliroute <subcomando>` em qualquer ambiente com Python.
-- Compose oferece serviços prontos:
-	- `simpliroute_cli` (ou `integrador` no `docker-compose.prod.yml`): fluxo completo, envia todos os registros respeitando `ORACLE_FETCH_LIMIT`.
-	- `simpliroute_cli_limit1` / `integrador_limit1`: envia apenas 1 visita + 1 entrega (`send --limit 1 --send`).
-	- `simpliroute_cli_preview` / `integrador_preview`: gera payloads sem enviar (`preview`).
-	- `simpliroute_cli_preview_limit1` / `integrador_preview_limit1`: preview limitado a 1 registro por view.
-- Para executar basta escolher o serviço, por exemplo `docker compose up simpliroute_cli_limit1` ou `docker compose -f docker-compose.prod.yml up integrador_preview`.
+- O `Dockerfile` e os arquivos `docker-compose*.yml` oferecem dois perfis:
+	- Serviços `simpliroute_cli*` / `integrador*` para execuções sob demanda do CLI (comando `python -m src.cli.send_to_simpliroute auto`).
+	- `simpliroute_service` / `integrador_service` para o processo contínuo FastAPI (polling + webhook) que roda 24/7 e expõe `http://localhost:8000`.
+- Os serviços contínuos já incluem healthcheck (`/health/live`) e montam `data/work/` para persistir logs/webhooks.
+- Para alterar o comando executado automaticamente no CLI, defina `SIMPLIROUTE_AUTO_COMMAND` (ex.: `preview --limit 5`).
+- Para o serviço FastAPI, ajuste `POLLING_INTERVAL_MINUTES`, `SIMPLIROUTE_POLLING_LIMIT` e as variáveis do webhook no `settings/.env`.
+- Exemplos de uso:
+	- `docker compose up simpliroute_cli_limit1`
+	- `docker compose up simpliroute_service`
+	- `docker compose -f docker-compose.prod.yml up integrador_service`
+
+### Teste manual do webhook
+- Com o serviço rodando (local ou via Docker), envie um payload de teste usando `tests/manual/webhook_sample.http` (compatível com a extensão REST Client) ou adapte-o para `curl`/PowerShell.
+- Lembre-se de preencher o header `Authorization: Bearer <SIMPLIR_ROUTE_WEBHOOK_TOKEN>` se a variável estiver configurada.
+- Verifique `data/work/webhooks/` e a tabela `SIMPLIROUTE_STATUS_LOG` para confirmar o recebimento.
 
 ## Estrutura do Oracle Instant Client
 - Coloque os pacotes dentro de `settings/instantclient/`:

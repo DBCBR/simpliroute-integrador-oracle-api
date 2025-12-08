@@ -147,4 +147,8 @@ def fetch_grouped_records(
     return list(grouped.values())
 
 
-__all__ = ["fetch_view_rows", "fetch_grouped_records"]
+def get_connection() -> oracledb.Connection:
+    return _build_connection()
+
+
+__all__ = ["fetch_view_rows", "fetch_grouped_records", "get_connection"]

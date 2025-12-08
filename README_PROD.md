@@ -14,11 +14,11 @@ Este arquivo descreve os passos mínimos para a equipe de infra executar a aplic
 
 **Como o deploy funciona (visão rápida)**
 - A imagem é construída a partir da `Dockerfile` do repositório. Se o Instant Client estiver presente em `settings/instantclient/*.zip`, o build extrai os bins e ativa o modo "thick" do `python-oracledb`.
-- O compose `docker-compose.prod.yml` monta `settings` como leitura (`ro`) e `data/output` como leitura/gravação para que os artefatos dry-run sejam persistidos no host.
+- O compose `docker-compose.prod.yml` monta `settings` como leitura (`ro`) e `data/output` / `data/work` como leitura/gravação para que os artefatos dry-run e os logs/webhooks do serviço sejam persistidos no host.
 - Variáveis importantes forçadas no compose:
-  - `USE_GNEXUM_DB=1` — usa leitura via Oracle DB (views configuradas).
-  - `SIMPLIROUTE_DRY_RUN=1` — evita posts reais ao SimpliRoute.
+  - `SIMPLIROUTE_DRY_RUN=1` — evita posts reais ao SimpliRoute durante smoke-tests.
   - `DRY_RUN_SAVE_PAYLOADS=1` — salva payloads em `data/output` para revisão.
+  - `POLLING_INTERVAL_MINUTES=60` — executa o ciclo automático a cada hora.
 
 **Passos para executar (Linux)**
 1. Colocar o Instant Client ZIP no host (exemplo):
@@ -35,16 +35,16 @@ cp /secure/location/instantclient-basic-linux.x64-23.26.0.0.0.zip settings/insta
 ```bash
 # Se sua instalação usa o plugin moderno:
 docker compose -f docker-compose.prod.yml build --pull --no-cache
-docker compose -f docker-compose.prod.yml up -d
-# Acompanhar logs:
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml up -d integrador_service
+# Acompanhar logs do serviço contínuo:
+docker compose -f docker-compose.prod.yml logs -f integrador_service
 ```
 
 Se o host tiver apenas o `docker-compose` binário:
 
 ```bash
 docker-compose -f docker-compose.prod.yml build --pull --no-cache
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml up -d integrador_service
 ```
 
 4. Parar a stack:
@@ -53,21 +53,13 @@ docker-compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml down
 ```
 
-**Executar fetch DB one-off (gerar payloads imediatamente)**
-
-```bash
-# Executa o script que busca do DB, mapeia e salva payloads em data/output
-docker compose -f docker-compose.prod.yml run --rm integrador python tests/run_db_fetch_all.py --page-size 100 --max-pages 0
-```
-
-- `--max-pages 0` pode significar "sem limite" dependendo do script; ajustar conforme necessário.
-
 **Onde os artefatos aparecem**
 - `data/output/` no host (montado pelo compose) conterá os arquivos `visits_db_*_dryrun_*.json` e subpastas com requests simulados.
+- `data/work/` armazenará `service_events.log` e os JSONs recebidos pelo webhook (`data/work/webhooks/`).
 
 **Notas para infra**
 - Se preferirem não copiar o ZIP para o repositório, podem extrair o Instant Client num diretório do host (ex: `/opt/oracle/instantclient`) e montar esse diretório para `/opt/oracle/instantclient` dentro do container adicionando um `volumes` override no `docker-compose.prod.yml` ou via `docker compose run -v /opt/oracle/instantclient:/opt/oracle/instantclient:ro ...`.
-- Certificar-se que o usuário que roda o container tem acesso de escrita ao `./data/output`.
+- Certificar-se que o usuário que roda o container tem acesso de escrita a `./data/output` **e** `./data/work`.
 
 **Suporte**
 - Se quiser, eu posso abrir um branch com estes arquivos e criar um PR para `dev` (workflow: branch → PR → merge). Quer que eu faça o commit e abra o PR? Caso contrário, a equipe de infra pode copiar estes arquivos direto no servidor.

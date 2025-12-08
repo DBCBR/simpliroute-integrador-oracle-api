@@ -1,62 +1,65 @@
+````markdown
 # Integração SimpliRoute
 
-Este diretório contém a integração com a API do SimpliRoute (envio de `Visit` objects) e a ponte com o Gnexum.
+Este pacote concentra o serviço FastAPI responsável por:
 
-Variáveis de ambiente (arquivo `settings/.env`):
+- Ler periodicamente as views Oracle e enviar visitas/entregas ao SimpliRoute.
+- Expor endpoints de healthcheck.
+- Receber webhooks do SimpliRoute e refletir os status no banco Oracle.
 
-- `SIMPLIR_ROUTE_TOKEN` : token da API SimpliRoute. Usado no header `Authorization: Token <token>`.
-- `SIMPLIROUTE_API_BASE` : URL base da API SimpliRoute (ex: `https://api.simpliroute.com`). O cliente adiciona o path `/v1/routes/visits/`.
-- `SIMPLIROUTE_WEBHOOK_TOKEN` : (opcional) token para validar webhooks locais.
-- `GNEXUM_API_URL` : URL do endpoint do Gnexum para buscar itens por registro.
-- `GNEXUM_TOKEN` : token para autenticar chamadas ao Gnexum (se aplicável).
-- `USE_REAL_GNEXUM` : `true|false` — se `true`, a integração fará chamadas reais ao `GNEXUM_API_URL`; se `false`, usa dados simulados.
-- `WEBHOOK_PORT` : porta onde a aplicação expõe endpoints (padrão `8000`).
-- `POLLING_INTERVAL_MINUTES` : intervalo (em minutos) entre execuções do polling (padrão `60`).
+## Variáveis principais (`settings/.env`)
 
-Como rodar localmente (sem Docker):
+### Oracle
+- `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE`, `ORACLE_USER`, `ORACLE_PASS`, `ORACLE_SCHEMA`.
+- `ORACLE_VIEWS` ou `ORACLE_VIEW_VISITAS`/`ORACLE_VIEW_ENTREGAS` para controlar as views consumidas.
+- `ORACLE_POLL_WHERE` para filtros (`WHERE`) adicionais.
+- `ORACLE_STATUS_SCHEMA` (opcional) — schema usado ao atualizar a tabela de status (default: `ORACLE_SCHEMA`).
+- `SIMPLIROUTE_TARGET_TABLE` (default `TD_OTIMIZE_ALTSTAT`).
+- `SIMPLIROUTE_TARGET_ACTION_COLUMN` (default `ACAO`) — recebe `A/E/S` conforme status do SR.
+- `SIMPLIROUTE_TARGET_INFO_COLUMN` (default `INFORMACAO`) — armazena o JSON completo recebido no webhook.
+- `SIMPLIROUTE_TARGET_STATUS_COLUMN` (default `STATUS`) — preenche códigos numéricos (0/1/2/3) conforme `TPREGISTRO`.
 
-1. Crie e ative um virtualenv com Python 3.11+
+### SimpliRoute
+- `SIMPLIR_ROUTE_TOKEN` (ou `SIMPLIROUTE_TOKEN`).
+- `SIMPLIROUTE_API_BASE` (default `https://api.simpliroute.com`).
+- `SIMPLIR_ROUTE_WEBHOOK_TOKEN` / `SIMPLIROUTE_WEBHOOK_TOKEN` para validar `POST /webhook/simpliroute`.
+
+### Serviço
+- `POLLING_INTERVAL_MINUTES` (default `60`).
+- `SIMPLIROUTE_POLLING_LIMIT` (default usa `ORACLE_FETCH_LIMIT`).
+- `WEBHOOK_PORT` (default `8000`).
+
+## Execução local
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-2. Copie/edite `settings/.env` com as variáveis necessárias.
-
-3. Execute a aplicação:
-
-```powershell
 uvicorn src.integrations.simpliroute.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Com Docker / docker-compose (recomendado para reproduzir ambiente):
+## Docker / Compose
 
 ```powershell
-# rebuild se necessário
-docker compose build --no-cache
-docker compose up -d
-# verificar logs
-docker compose logs -f simpliroute
-# health
+# serviço que roda continuamente
+docker compose build simpliroute_service
+docker compose up simpliroute_service
 Invoke-RestMethod -Uri http://localhost:8000/health/ready
 ```
 
-Endpoints úteis:
+### Endpoints
+- `GET /health`, `/health/live`, `/health/ready`.
+- `POST /webhook/simpliroute` — grava o payload bruto em `data/work/webhooks/` e agenda `persist_status_updates()` para refletir no Oracle.
 
-- `GET /health` — checa estado geral.
-- `GET /health/live` — liveness probe.
-- `GET /health/ready` — readiness probe (usado pelo healthcheck do container).
-- `POST /webhook/simpliroute` — webhook (protegido por `SIMPLIROUTE_WEBHOOK_TOKEN` se configurado).
+### Fluxo de polling
+1. `_collect_records()` lê as views configuradas usando `fetch_grouped_records`.
+2. Cada registro passa por `build_visit_payload()`.
+3. O lote é enviado para `/v1/routes/visits/` via `post_simpliroute`.
+4. O resultado é registrado em `data/work/service_events.log`.
 
-Notas sobre Gnexum:
+### Webhook → Oracle
+`persist_status_updates()` grava diretamente na `SIMPLIROUTE_TARGET_TABLE`, preenchendo `ACAO` (A/E/S), `INFORMACAO` (payload bruto) e, quando configurado, a coluna `STATUS` (0/1/2/3) conforme a combinação `TPREGISTRO` + status recebido. Ajuste as variáveis para apontar o schema/tabela corretos do IW.
 
-- A implementação atual tenta `POST` primeiro com vários formatos de corpo (ex: `{idregistro}`, `{record_id}`, `{id}`) e, em seguida, tenta `GET` como fallback.
-- Os resultados são normalizados para um array `items` usado no `Visit` enviado ao SimpliRoute.
-
-Testes:
-
-- Executar `pytest` para executar os testes adicionados (ex.: `tests/test_smoke.py`).
-
-Se quiser que eu teste chamadas reais ao Gnexum, confirme que o `GNEXUM_API_URL` e `GNEXUM_TOKEN` são válidos e estão acessíveis a partir do container; eu posso executar o teste a seguir.
+## Testes
+Execute `pytest tests/test_mapper.py` para validar o mapeamento principal. Os utilitários anteriores ligados ao Gnexum foram descontinuados.
+````
