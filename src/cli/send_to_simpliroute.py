@@ -121,9 +121,20 @@ def _save_payload(payloads: Sequence[Dict[str, Any]], output_dir: Path) -> Path:
     return target
 
 
+def _is_delivery(payload: Dict[str, Any]) -> bool:
+    visit_type = str(payload.get("visit_type") or "").lower()
+    if visit_type in {"rota", "rota_log", "delivery"}:
+        return True
+    properties = payload.get("properties") or {}
+    record_type = str(properties.get("record_type") or "").lower()
+    if "entreg" in record_type or visit_type == "entrega":
+        return True
+    return False
+
+
 def _print_summary(payloads: Sequence[Dict[str, Any]]) -> None:
     total = len(payloads)
-    deliveries = sum(1 for p in payloads if p.get("visit_type") == "rota")
+    deliveries = sum(1 for p in payloads if _is_delivery(p))
     print(f"Payloads gerados: {total} (entregas: {deliveries}, visitas: {total - deliveries})")
     if payloads:
         sample = payloads[0]

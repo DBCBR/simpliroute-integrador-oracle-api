@@ -3,6 +3,24 @@ import os
 from collections import OrderedDict
 import unicodedata
 from datetime import datetime, date
+import textwrap
+
+
+DEFAULT_DURATION_MINUTES = {
+    "delivery": 30,
+    "med": 30,
+    "enf": 60,
+}
+
+
+DEFAULT_WINDOW_RANGES = {
+    "delivery": ("00:00:00", "23:59:00", "23:59:00", "23:59:00"),
+    "med": ("00:00:00", "23:59:00", "23:59:00", "23:59:00"),
+    "enf": ("00:00:00", "23:59:00", "23:59:00", "23:59:00"),
+}
+
+
+MAX_MATERIAL_LINE_LENGTH = 58
 
 
 def _minutes_to_hhmmss(minutes: int) -> str:
@@ -48,6 +66,79 @@ def _normalize_duration(value) -> str:
         return _minutes_to_hhmmss(int(value))
     except Exception:
         return "00:00:00"
+
+
+def _is_blank_duration(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (int, float)):
+        try:
+            return float(value) <= 0
+        except Exception:
+            return True
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return True
+        normalized = stripped.replace(" ", "").lower()
+        return normalized in {"0", "0.0", "00:00:00"}
+    return False
+
+
+def _normalize_numeric_string(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
+def _zero_pad_quantity(value: Any) -> str:
+    if value in (None, ""):
+        return "0000"
+    try:
+        if isinstance(value, str):
+            normalized = value.replace(",", ".").strip()
+            num = float(normalized or 0)
+        else:
+            num = float(value)
+    except Exception:
+        return "0000"
+    if num < 0:
+        num = 0
+    return f"{int(round(num)):04d}"
+
+
+def _wrap_material_description(text: str, width: int = MAX_MATERIAL_LINE_LENGTH) -> List[str]:
+    if not text:
+        return []
+    wrapped = textwrap.wrap(
+        text,
+        width=width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    return wrapped if wrapped else [text]
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    if value in (None, ""):
+        return default
+    if isinstance(value, str):
+        candidate = value.replace(",", ".").strip()
+        if not candidate:
+            return default
+        try:
+            return float(candidate)
+        except Exception:
+            return default
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 
 def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -107,9 +198,10 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     tp = int(_get("tpregistro", "TPREGISTRO", default=1) or 1)
 
-    # Detect if this run is reading from the deliveries view.
-    # The environment variable `ORACLE_VIEW` may be set to `VWPACIENTES_ENTREGAS`.
-    view_name = os.getenv("ORACLE_VIEW", "").upper()
+    # Detect if this run is reading from a deliveries view.
+    source_view = str(record.get("_source_view") or "").upper()
+    env_view = os.getenv("ORACLE_VIEW", "").upper()
+    view_name = source_view or env_view
     is_entrega_view = "ENTREGAS" in view_name or "ENTREGA" in view_name
 
     # Title: use `NOME_PACIENTE` when available (user requirement)
@@ -133,8 +225,81 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         "properties": {},
     }
 
-    # mark source if this is a delivery dataset
-    if is_entrega_view:
+    rows = record.get("items") or record.get("rows") or record.get("ITEMS") or []
+    first_row = rows[0] if rows else {}
+
+    def _get_from_any(field_name: str, *alts: str):
+        value = _get(field_name, *alts)
+        if value not in (None, ""):
+            return value
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in (field_name,) + alts:
+                if row.get(key) not in (None, ""):
+                    return row.get(key)
+        return None
+
+    delivery_note_lines: List[str] = []
+
+    def _normalize_descriptor_value(value: Any) -> str:
+        if value is None:
+            return ""
+        try:
+            text = str(value).strip()
+        except Exception:
+            return ""
+        if not text:
+            return ""
+        normalized = unicodedata.normalize("NFKD", text)
+        ascii_only = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+        return ascii_only.lower()
+
+    descriptor_parts: List[str] = []
+
+    def _collect_descriptors(*values: Any) -> None:
+        for value in values:
+            norm = _normalize_descriptor_value(value)
+            if norm:
+                descriptor_parts.append(norm)
+
+    _collect_descriptors(
+        _get("ESPECIALIDADE"),
+        _get("especialidade"),
+        _get("TIPOVISITA"),
+        _get("tipovisita"),
+        record.get("visit_type"),
+        record.get("notes"),
+    )
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        _collect_descriptors(
+            row.get("ESPECIALIDADE"),
+            row.get("especialidade"),
+            row.get("TIPOVISITA"),
+            row.get("tipovisita"),
+            row.get("TIPO_ENTREGA"),
+            row.get("TIPO"),
+            row.get("notes"),
+        )
+
+    descriptor_blob = " ".join(descriptor_parts)
+
+    visit_category = None
+    if is_entrega_view or tp == 2:
+        visit_category = "delivery"
+    elif any(token in descriptor_blob for token in ("rota", "motoboy", "rota_log", "entrega")):
+        visit_category = "delivery"
+    elif any(token in descriptor_blob for token in ("enferm", "enfermeir")):
+        visit_category = "enf"
+    elif any(token in descriptor_blob for token in ("medic", "pediatr")):
+        visit_category = "med"
+
+    is_delivery_like = visit_category == "delivery"
+
+    # mark source if this behaves like a delivery dataset
+    if is_entrega_view or is_delivery_like:
         payload["properties"]["record_type"] = "entrega"
 
     # additional top-level fields expected by SimpliRoute — fill when available, else blank/empty
@@ -195,6 +360,22 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     payload["window_start_2"] = _get("window_start_2") or _get("WINDOW_START_2") or None
     payload["window_end_2"] = _get("window_end_2") or _get("WINDOW_END_2") or None
 
+    def _apply_window_defaults() -> None:
+        defaults = DEFAULT_WINDOW_RANGES.get(visit_category)
+        if not defaults:
+            return
+        window_start_1, window_end_1, window_start_2, window_end_2 = defaults
+        if not payload.get("window_start"):
+            payload["window_start"] = window_start_1
+        if not payload.get("window_end"):
+            payload["window_end"] = window_end_1
+        if not payload.get("window_start_2"):
+            payload["window_start_2"] = window_start_2
+        if not payload.get("window_end_2"):
+            payload["window_end_2"] = window_end_2
+
+    _apply_window_defaults()
+
     # loads and duration
     payload["load"] = float(_get("load") or _get("volume") or 0.0)
     payload["load_2"] = float(_get("load_2") or 0.0)
@@ -202,9 +383,12 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     # Duration (service time) in HH:MM:SS when provided or fallback
     duration = _get("duration")
-    if duration is None:
-        # allow 'service_time' or default 0
-        duration = _get("service_time") or 0
+    if _is_blank_duration(duration):
+        duration = _get("service_time")
+    if _is_blank_duration(duration):
+        default_minutes = DEFAULT_DURATION_MINUTES.get(visit_category)
+        if default_minutes is not None:
+            duration = default_minutes
     payload["duration"] = _normalize_duration(duration)
 
     # contact/reference/notes fields expected by SimpliRoute
@@ -214,14 +398,22 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     payload["contact_name"] = contact_name
     payload["contact_phone"] = contact_phone
     payload["contact_email"] = contact_email
-    payload["reference"] = str(_get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or "")
+
+    def _delivery_reference() -> str:
+        prescricao = _get_from_any("ID_PRESCRICAO")
+        protocolo = _get_from_any("ID_PROTOCOLO")
+        if prescricao and protocolo:
+            return f"{_normalize_numeric_string(prescricao)}{_normalize_numeric_string(protocolo)}"
+        return ""
+
+    if is_delivery_like:
+        reference_value = _delivery_reference() or _get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or ""
+    else:
+        reference_value = _get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or ""
+    payload["reference"] = str(reference_value)
     payload["notes"] = _get("notes") or ""
 
     # Items: converter para o formato esperado pela API de visits.items
-    rows = record.get("items") or record.get("rows") or record.get("ITEMS") or []
-
-    # use first row as fallback source for visit-level fields when present
-    first_row = rows[0] if rows else {}
 
     # Latitude/longitude: include only when present and non-empty in the source record.
     # If absent, leave as None so the client/pruner will omit the keys and allow SR to geocode.
@@ -289,17 +481,16 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     visit_type_combined = " ".join([str(x) for x in visit_type_candidates if x]).lower()
 
     # For delivery view, always try to build items from rows using delivery-oriented fields
-    if is_entrega_view:
+    if is_entrega_view or is_delivery_like:
         items = []
         for r in rows:
             if not isinstance(r, dict):
                 continue
             # try several possible field names used in delivery views
             title_candidates = [
+                "NOME_MATERIAL",
                 "PRODUTO",
                 "NOME",
-                "NOME_MATERIAL",
-                "NOME_MATERIAL".lower(),
                 "DESCRICAO",
                 "descricao",
                 "title",
@@ -312,18 +503,55 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                     break
             if not title_item:
                 title_item = "item"
-            qty = float(r.get("QUANTIDADE") or r.get("quantity_planned") or r.get("quantidade") or r.get("qty") or 1.0)
+
+            qty_requested_raw = (
+                r.get("QTD_ITEM_SOLICITADO")
+                or r.get("QTDE_SOLICITADA")
+                or r.get("QTD_SOLICITADA")
+                or r.get("QUANTIDADE")
+                or r.get("quantity_planned")
+                or r.get("quantidade")
+                or r.get("qty")
+                or 1.0
+            )
+            qty_delivered_raw = (
+                r.get("QTD_ITEM_ENVIADO")
+                or r.get("QTDE_ATENDIDA")
+                or r.get("QTD_ENTREGUE")
+                or r.get("QTD_ITEM_ENTREGUE")
+                or r.get("QTD_SEPARADA")
+                or r.get("quantity_delivered")
+                or 0.0
+            )
+
+            qty_planned = _to_float(qty_requested_raw, default=1.0)
+            qty_delivered = _to_float(qty_delivered_raw, default=0.0)
+
+            item_reference = (
+                r.get("ID_MATERIAL")
+                or r.get("ID_ITEM")
+                or r.get("IDRESUPPLY")
+                or r.get("ID_PROTOCOLO")
+                or r.get("ID_ATENDIMENTO")
+                or r.get("reference")
+                or ""
+            )
+
+            suffix = f"{_zero_pad_quantity(qty_delivered)}/{_zero_pad_quantity(qty_planned)}"
+            wrapped_lines = _wrap_material_description(str(title_item))
+            if wrapped_lines:
+                wrapped_lines[-1] = f"{wrapped_lines[-1]} - {suffix}"
+                delivery_note_lines.extend(wrapped_lines)
+
             item = {
                 "title": title_item,
                 "status": "pending",
                 "load": float(r.get("load") or 0.0),
                 "load_2": float(r.get("load_2") or 0.0),
                 "load_3": float(r.get("load_3") or 0.0),
-                "reference": str(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("reference") or ""),
-                "visit": None,
-                "notes": r.get("notes") or r.get("OBSERVACAO") or "",
-                "quantity_planned": qty,
-                "quantity_delivered": 0.0,
+                "reference": str(item_reference),
+                "quantity_planned": qty_planned,
+                "quantity_delivered": qty_delivered,
             }
             items.append(item)
         payload["items"] = items
@@ -357,8 +585,6 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                     "load_2": float(base.get("load_2") or 0.0),
                     "load_3": float(base.get("load_3") or 0.0),
                     "reference": base.get("reference") or "",
-                    "visit": None,
-                    "notes": base.get("notes") or "",
                     "quantity_planned": float(base.get("quantity_planned") or 1.0),
                     "quantity_delivered": 0.0,
                 }
@@ -403,10 +629,10 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["load"] = payload.get("load", 0.0)
     ordered["load_2"] = payload.get("load_2", 0.0)
     ordered["load_3"] = payload.get("load_3", 0.0)
-    ordered["window_start"] = None
-    ordered["window_end"] = None
-    ordered["window_start_2"] = None
-    ordered["window_end_2"] = None
+    ordered["window_start"] = payload.get("window_start")
+    ordered["window_end"] = payload.get("window_end")
+    ordered["window_start_2"] = payload.get("window_start_2")
+    ordered["window_end_2"] = payload.get("window_end_2")
     ordered["duration"] = payload.get("duration")
     ordered["contact_name"] = payload.get("contact_name")
     ordered["contact_phone"] = payload.get("contact_phone")
@@ -441,6 +667,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["priority_level"] = payload.get("priority_level")
     ordered["extra_field_values"] = payload.get("extra_field_values") or {}
     ordered["geocode_alert"] = payload.get("geocode_alert")
+    # placeholder ensures visit_type stays immediately after geocode_alert in final JSON
+    ordered["visit_type"] = None
     # visit_type: prefer mapping derived from ESPECIALIDADE; do not use raw TIPOVISITA
     # TIPOVISITA will be preserved in properties for traceability.
     visit_type_val = (
@@ -616,12 +844,15 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         ordered["notes"] = final_tip
 
     # If this is delivery dataset, prefer explicit delivery visit_type and notes
-    if is_entrega_view:
+    if is_entrega_view or is_delivery_like:
         try:
             # deliveries em produção devem usar o visit_type 'rota_log'
             ordered["visit_type"] = "rota_log"
-            delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
-            ordered["notes"] = str(delivery_note)
+            if delivery_note_lines:
+                ordered["notes"] = "\n".join(delivery_note_lines)
+            else:
+                delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
+                ordered["notes"] = str(delivery_note)
         except Exception:
             ordered["notes"] = ordered.get("notes") or "ENTREGA"
 
