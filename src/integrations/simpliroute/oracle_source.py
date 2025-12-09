@@ -98,6 +98,28 @@ def _group_key(row: Dict[str, Any]) -> str:
     return f"ROW_{row.get('ROWNUM', '')}_{id(row)}"
 
 
+def resolve_where_clause(view_name: Optional[str], explicit_where: Optional[str] = None) -> Optional[str]:
+    """Seleciona o filtro WHERE a ser aplicado considerando overrides por view."""
+
+    if explicit_where:
+        return explicit_where
+
+    base_where = os.getenv("ORACLE_POLL_WHERE")
+    view_upper = (view_name or "").upper()
+    if not view_upper:
+        return base_where
+
+    delivery_where = os.getenv("ORACLE_POLL_WHERE_ENTREGAS") or os.getenv("ORACLE_POLL_WHERE_ENTREGA")
+    visit_where = os.getenv("ORACLE_POLL_WHERE_VISITAS") or os.getenv("ORACLE_POLL_WHERE_VISITA")
+
+    if any(token in view_upper for token in ("ENTREGA", "ROTA")) and delivery_where:
+        return delivery_where
+    if any(token in view_upper for token in ("VISITA", "VISIT")) and visit_where:
+        return visit_where
+
+    return base_where
+
+
 def fetch_view_rows(
     limit: Optional[int] = None,
     where_clause: Optional[str] = None,
@@ -151,4 +173,4 @@ def get_connection() -> oracledb.Connection:
     return _build_connection()
 
 
-__all__ = ["fetch_view_rows", "fetch_grouped_records", "get_connection"]
+__all__ = ["fetch_view_rows", "fetch_grouped_records", "get_connection", "resolve_where_clause"]

@@ -345,7 +345,15 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     # planned_date if present (preferred) or from eventdate
     # suportar campo DT_VISITA vindo do Gnexum
-    pd = _get("planned_date") or _get("eventdate") or _get("EVENTDATE") or _get("DT_VISITA") or _get("dt_visita")
+    pd = (
+        _get("planned_date")
+        or _get("eventdate")
+        or _get("EVENTDATE")
+        or _get("DT_VISITA")
+        or _get("dt_visita")
+        or _get("DT_ENTREGA")
+        or _get("dt_entrega")
+    )
     try:
         if isinstance(pd, (datetime, date)):
             payload["planned_date"] = pd.strftime("%Y-%m-%d")
@@ -551,7 +559,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                 "load_3": float(r.get("load_3") or 0.0),
                 "reference": str(item_reference),
                 "quantity_planned": qty_planned,
-                "quantity_delivered": qty_delivered,
+                "quantity_delivered": None,
             }
             items.append(item)
         payload["items"] = items
@@ -586,7 +594,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                     "load_3": float(base.get("load_3") or 0.0),
                     "reference": base.get("reference") or "",
                     "quantity_planned": float(base.get("quantity_planned") or 1.0),
-                    "quantity_delivered": 0.0,
+                    "quantity_delivered": None,
                 }
                 items.append(item)
             payload["items"] = items

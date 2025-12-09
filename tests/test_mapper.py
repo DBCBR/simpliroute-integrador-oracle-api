@@ -22,6 +22,27 @@ def test_title_and_planned_date_and_properties_order():
     assert out.get("properties") in (None, {})
 
 
+def test_delivery_planned_date_from_dt_entrega():
+    record = {
+        "ID_ATENDIMENTO": "31514",
+        "NOME_PACIENTE": "Milena",
+        "TPREGISTRO": 2,
+        "DT_ENTREGA": "2025-11-04",
+        "items": [
+            {
+                "NOME_MATERIAL": "Diazepam",
+                "QTD_ITEM_SOLICITADO": 60,
+                "QTD_ITEM_ENVIADO": 60,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("planned_date") == "2025-11-04"
+    assert out.get("visit_type") == "rota_log"
+
+
 def test_items_omitted_for_medical_or_nursing():
     # case: ESPECIALIDADE indicates enfermagem -> items omitted
     record_enf = {
@@ -88,7 +109,7 @@ def test_delivery_reference_and_notes():
     assert out["reference"] == "1234"
     assert out["items"][0]["reference"] == "MAT123"
     assert out["items"][0]["quantity_planned"] == 5.0
-    assert out["items"][0]["quantity_delivered"] == 1.0
+    assert out["items"][0]["quantity_delivered"] is None
 
     notes_lines = out["notes"].splitlines()
     assert notes_lines[0].endswith(" - 0001/0005")

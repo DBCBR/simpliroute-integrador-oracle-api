@@ -18,7 +18,7 @@ from src.core.config import load_config
 
 from .client import post_simpliroute
 from .mapper import build_visit_payload
-from .oracle_source import fetch_grouped_records
+from .oracle_source import fetch_grouped_records, resolve_where_clause
 from .oracle_status_sync import persist_status_updates
 
 LOGGER = logging.getLogger("simpliroute.service")
@@ -125,7 +125,8 @@ def _collect_records(limit: int | None, where: str | None, view_names: Sequence[
         per_view_limit = max(1, math.ceil(limit / len(targets)))
         limit_split_across_views = len(targets) > 1
     for target_view in targets:
-        batch = fetch_grouped_records(limit=per_view_limit, where_clause=where, view_name=target_view)
+        effective_where = resolve_where_clause(target_view, where)
+        batch = fetch_grouped_records(limit=per_view_limit, where_clause=effective_where, view_name=target_view)
         rows.extend(batch)
     if not limit_split_across_views and limit and limit > 0 and len(rows) > limit:
         rows = rows[:limit]
@@ -166,7 +167,8 @@ def _load_polling_settings() -> PollingSettings:
     except ValueError:
         limit = _default_limit()
 
-    where = os.getenv("ORACLE_POLL_WHERE")
+    simpliroute_cfg = (cfg.get("simpliroute") or {})
+    where = simpliroute_cfg.get("polling_where") or os.getenv("SIMPLIROUTE_POLL_WHERE")
     explicit_views: Sequence[str] | None = None
     env_views = _env_default_views()
     if env_views:

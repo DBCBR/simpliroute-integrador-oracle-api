@@ -12,7 +12,11 @@ import httpx
 from src.core.config import load_config
 from src.integrations.simpliroute.client import post_simpliroute
 from src.integrations.simpliroute.mapper import build_visit_payload
-from src.integrations.simpliroute.oracle_source import fetch_grouped_records, fetch_view_rows
+from src.integrations.simpliroute.oracle_source import (
+    fetch_grouped_records,
+    fetch_view_rows,
+    resolve_where_clause,
+)
 
 CONFIG_CACHE: Dict[str, Any] = {}
 LOG_PATH = Path("data/output/send_history.log")
@@ -93,7 +97,10 @@ def _collect_records(
         targets = list(view_names or []) or [None]
         rows: List[Dict[str, Any]] = []
         for target_view in targets:
-            rows.extend(fetch_grouped_records(limit=limit, where_clause=where, view_name=target_view))
+            effective_where = resolve_where_clause(target_view, where)
+            rows.extend(
+                fetch_grouped_records(limit=limit, where_clause=effective_where, view_name=target_view)
+            )
         return rows
     if file_path:
         if not file_path.exists():
@@ -179,8 +186,46 @@ def _extract_response_ids(response: httpx.Response) -> List[str]:
     return ids
 
 
+def _pretty_print_response(response: httpx.Response) -> bool:
+    try:
+        parsed = response.json()
+    except ValueError:
+        return False
+
+    def _format_entry(entry: Dict[str, Any], index: int) -> str:
+        title = entry.get("title")
+        reference = entry.get("reference") or entry.get("tracking_id")
+        header = f"Registro {index}"
+        if title or reference:
+            parts = [header]
+            if title:
+                parts.append(f"title='{title}'")
+            if reference:
+                parts.append(f"reference='{reference}'")
+            header = " | ".join(parts)
+        block = json.dumps(entry, ensure_ascii=False, indent=2)
+        divider = "=" * 60
+        return f"{divider}\n{header}\n{divider}\n{block}"
+
+    if isinstance(parsed, list):
+        for idx, item in enumerate(parsed, start=1):
+            if isinstance(item, dict):
+                print(_format_entry(item, idx))
+            else:
+                divider = "=" * 60
+                print(f"{divider}\nRegistro {idx}\n{divider}\n{json.dumps(item, ensure_ascii=False, indent=2)}")
+        return True
+
+    if isinstance(parsed, dict):
+        divider = "=" * 60
+        print(f"{divider}\nResposta\n{divider}\n{json.dumps(parsed, ensure_ascii=False, indent=2)}")
+        return True
+
+    return False
+
+
 def _run_send_flow(args: argparse.Namespace) -> int:
-    where = args.where or os.getenv("ORACLE_POLL_WHERE")
+    where = args.where or None
     if args.file and (args.view or args.views):
         print("As opções --view/--views não podem ser usadas junto com --file.")
         return 1
@@ -193,10 +238,15 @@ def _run_send_flow(args: argparse.Namespace) -> int:
         env_views = _env_default_views()
         if env_views:
             resolved_views = env_views
+    env_where_hint = (
+        os.getenv("ORACLE_POLL_WHERE_ENTREGAS")
+        or os.getenv("ORACLE_POLL_WHERE_VISITAS")
+        or os.getenv("ORACLE_POLL_WHERE")
+    )
     log_context = {
         "views": list(resolved_views or []),
         "limit": args.limit,
-        "where": where,
+        "where": where or env_where_hint,
     }
     try:
         records = _collect_records(
@@ -252,7 +302,7 @@ def _run_send_flow(args: argparse.Namespace) -> int:
             return 1
         print(f"Resposta SimpliRoute: HTTP {response.status_code}")
         body_text = response.text if hasattr(response, "text") else ""
-        if body_text:
+        if not _pretty_print_response(response) and body_text:
             print(body_text)
         response_ids = _extract_response_ids(response)
         log_entry = {
@@ -325,7 +375,7 @@ def _cmd_diagnose_sr(args: argparse.Namespace) -> int:
 
 
 def _cmd_diagnose_db(args: argparse.Namespace) -> int:
-    where = args.where or os.getenv("ORACLE_POLL_WHERE")
+    where = resolve_where_clause(args.view, args.where)
     try:
         rows = fetch_view_rows(limit=args.limit, where_clause=where, view_name=args.view)
     except Exception as exc:
