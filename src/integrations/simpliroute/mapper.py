@@ -286,6 +286,69 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     descriptor_blob = " ".join(descriptor_parts)
 
+    def _infer_delivery_visit_type(default_type: str = "rota_log") -> str:
+        """Define a tag logística priorizando o valor homolgado (TP_ENTREGA/TIPO_ENTREGA)."""
+
+        candidate_fields = (
+            "TP_ENTREGA",
+            "tp_entrega",
+            "TIPO_ENTREGA",
+            "tipo_entrega",
+            "TIPO",
+            "tipo",
+            "SUBTIPO",
+            "subtipo",
+            "MOTIVO",
+            "motivo",
+            "DESC_TIPO",
+            "desc_tipo",
+            "TIPO_MOVIMENTO",
+            "tipo_movimento",
+            "TIPO_MOVIMENTACAO",
+            "tipo_movimentacao",
+        )
+
+        descriptors: List[str] = []
+        exact_tokens: List[str] = []
+        for field in candidate_fields:
+            value = _get(field)
+            if value not in (None, ""):
+                text = str(value)
+                descriptors.append(text)
+                exact_tokens.append(text)
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for field in candidate_fields:
+                value = row.get(field)
+                if value not in (None, ""):
+                    text = str(value)
+                    descriptors.append(text)
+                    exact_tokens.append(text)
+
+        if descriptor_blob:
+            descriptors.append(descriptor_blob)
+
+        normalized_exact = [_normalize_descriptor_value(val) for val in exact_tokens]
+        allowed_tags = {"rota_log", "adm_log", "acr_log"}
+        disabled_tags = {"ret_log", "pad_log"}
+        for token in normalized_exact:
+            if token in allowed_tags:
+                return token
+            if token in disabled_tags:
+                return default_type
+
+        normalized_blob = " ".join(_normalize_descriptor_value(val) for val in descriptors if val not in (None, ""))
+
+        if "acresc" in normalized_blob:
+            return "acr_log"
+        if "admis" in normalized_blob:
+            return "adm_log"
+
+        # Retirada (ret_log) e mudança de PAD (pad_log) ainda não estão ativos.
+        return default_type
+
     visit_category = None
     if is_entrega_view or tp == 2:
         visit_category = "delivery"
@@ -854,8 +917,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # If this is delivery dataset, prefer explicit delivery visit_type and notes
     if is_entrega_view or is_delivery_like:
         try:
-            # deliveries em produção devem usar o visit_type 'rota_log'
-            ordered["visit_type"] = "rota_log"
+            # deliveries usam tags específicas (rota/admissao/acrescimo)
+            ordered["visit_type"] = _infer_delivery_visit_type("rota_log")
             if delivery_note_lines:
                 ordered["notes"] = "\n".join(delivery_note_lines)
             else:

@@ -61,6 +61,14 @@ Invoke-RestMethod -Uri http://localhost:8000/health/ready
 ### Webhook → Oracle
 `persist_status_updates()` grava diretamente na `SIMPLIROUTE_TARGET_TABLE`, preenchendo `ACAO` (A/E/S), `INFORMACAO` (payload bruto) e, quando configurado, a coluna `STATUS` (0/1/2/3) conforme a combinação `TPREGISTRO` + status recebido. Ajuste as variáveis para apontar o schema/tabela corretos do IW.
 
+### Visit types (`visit_type`)
+- `med_visit` e `enf_visit`: consultas médicas/enfermagem detectadas por `ESPECIALIDADE`/`TIPOVISITA`.
+- `rota_log`: entrega logística padrão (rota neutra).
+- `adm_log`: entrega para admissão (ex.: `TIPO_ENTREGA = 'Admissão'`).
+- `acr_log`: entrega por acréscimo.
+- `ret_log` e `pad_log` já existem no catálogo, mas ficam desativados até homologação da logística.
+- A view `VWPACIENTES_ENTREGAS` fornece a coluna `TP_ENTREGA`; quando populada com uma tag homologada, ela prevalece sobre as inferências textuais.
+
 ## Testes
 Execute `pytest tests/test_mapper.py` para validar o mapeamento principal. Os utilitários anteriores ligados ao Gnexum foram descontinuados.
 ````

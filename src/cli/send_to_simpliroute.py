@@ -130,11 +130,15 @@ def _save_payload(payloads: Sequence[Dict[str, Any]], output_dir: Path) -> Path:
 
 def _is_delivery(payload: Dict[str, Any]) -> bool:
     visit_type = str(payload.get("visit_type") or "").lower()
-    if visit_type in {"rota", "rota_log", "delivery"}:
+    logistic_tags = {"rota", "rota_log", "delivery", "adm_log", "acr_log", "ret_log", "pad_log"}
+    if visit_type in logistic_tags:
         return True
     properties = payload.get("properties") or {}
     record_type = str(properties.get("record_type") or "").lower()
-    if "entreg" in record_type or visit_type == "entrega":
+    subtipo = str(payload.get("subtipo") or "").lower()
+    if any(token in record_type for token in ("entreg", "delivery", "log")):
+        return True
+    if any(token in subtipo for token in ("entreg", "delivery", "log")):
         return True
     return False
 

@@ -256,8 +256,11 @@ docker compose run --rm simpliroute_cli `
 ### Tipos de visita enviados
 - `med_visit`: visitas médicas (ESPECIALIDADE/TIPOVISITA).
 - `enf_visit`: visitas de enfermagem.
-- `rota_log`: entregas (`TPREGISTRO = 2` ou views de entregas).
-- Valores não homologados são ignorados para manter o catálogo alinhado ao SimpliRoute.
+- `rota_log`: entregas em rota ou neutras (`TPREGISTRO = 2` ou views de entregas sem subtipo).
+- `adm_log`: entregas de material para admissão (detecção por `TIPO_ENTREGA`/`TIPO`).
+- `acr_log`: entregas por acréscimo de material.
+- Tags de retirada (`ret_log`) e mudança de PAD (`pad_log`) permanecem desligadas até homologação da logística.
+- Quando presente, a coluna `TP_ENTREGA` da view de entregas tem prioridade para definir essas tags.
 
 ## 6. Serviço FastAPI (`simpliroute_service` / `integrador_service`)
 

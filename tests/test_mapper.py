@@ -43,6 +43,83 @@ def test_delivery_planned_date_from_dt_entrega():
     assert out.get("visit_type") == "rota_log"
 
 
+def test_delivery_visit_type_from_admissao():
+    record = {
+        "ID_ATENDIMENTO": "4001",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TIPO_ENTREGA": "Admissão",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item Adm",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("visit_type") == "adm_log"
+
+
+def test_delivery_visit_type_from_acrescimo():
+    record = {
+        "ID_ATENDIMENTO": "4002",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TIPO_ENTREGA": "Acréscimo",
+        "TP_ENTREGA": "acr_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item Acr",
+                "QTD_ITEM_SOLICITADO": 2,
+                "QTD_ITEM_ENVIADO": 2,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("visit_type") == "acr_log"
+
+
+def test_delivery_visit_type_from_disabled_tags_fallback():
+    record_ret = {
+        "ID_ATENDIMENTO": "5001",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TP_ENTREGA": "ret_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out_ret = build_visit_payload(record_ret)
+    assert out_ret.get("visit_type") == "rota_log"
+
+    record_pad = {
+        "ID_ATENDIMENTO": "5002",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TP_ENTREGA": "pad_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out_pad = build_visit_payload(record_pad)
+    assert out_pad.get("visit_type") == "rota_log"
+
+
 def test_items_omitted_for_medical_or_nursing():
     # case: ESPECIALIDADE indicates enfermagem -> items omitted
     record_enf = {
