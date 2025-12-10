@@ -12,7 +12,7 @@ Este pacote concentra o serviço FastAPI responsável por:
 ### Oracle
 - `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE`, `ORACLE_USER`, `ORACLE_PASS`, `ORACLE_SCHEMA`.
 - `ORACLE_VIEWS` ou `ORACLE_VIEW_VISITAS`/`ORACLE_VIEW_ENTREGAS` para controlar as views consumidas.
-- `ORACLE_POLL_WHERE` para filtros (`WHERE`) adicionais.
+- `ORACLE_POLL_WHERE` (global), `ORACLE_POLL_WHERE_VISITAS` e `ORACLE_POLL_WHERE_ENTREGAS` para filtros (`WHERE`) adicionais.
 - `ORACLE_STATUS_SCHEMA` (opcional) — schema usado ao atualizar a tabela de status (default: `ORACLE_SCHEMA`).
 - `SIMPLIROUTE_TARGET_TABLE` (default `TD_OTIMIZE_ALTSTAT`).
 - `SIMPLIROUTE_TARGET_ACTION_COLUMN` (default `ACAO`) — recebe `A/E/S` conforme status do SR.
@@ -27,6 +27,7 @@ Este pacote concentra o serviço FastAPI responsável por:
 ### Serviço
 - `POLLING_INTERVAL_MINUTES` (default `60`).
 - `SIMPLIROUTE_POLLING_LIMIT` (default usa `ORACLE_FETCH_LIMIT`).
+- `SIMPLIROUTE_POLL_WHERE` para impor um filtro específico ao serviço, independente do CLI.
 - `WEBHOOK_PORT` (default `8000`).
 
 ## Execução local
@@ -59,6 +60,14 @@ Invoke-RestMethod -Uri http://localhost:8000/health/ready
 
 ### Webhook → Oracle
 `persist_status_updates()` grava diretamente na `SIMPLIROUTE_TARGET_TABLE`, preenchendo `ACAO` (A/E/S), `INFORMACAO` (payload bruto) e, quando configurado, a coluna `STATUS` (0/1/2/3) conforme a combinação `TPREGISTRO` + status recebido. Ajuste as variáveis para apontar o schema/tabela corretos do IW.
+
+### Visit types (`visit_type`)
+- `med_visit` e `enf_visit`: consultas médicas/enfermagem detectadas por `ESPECIALIDADE`/`TIPOVISITA`.
+- `rota_log`: entrega logística padrão (rota neutra).
+- `adm_log`: entrega para admissão (ex.: `TIPO_ENTREGA = 'Admissão'`).
+- `acr_log`: entrega por acréscimo.
+- `ret_log` e `pad_log` já existem no catálogo, mas ficam desativados até homologação da logística.
+- A view `VWPACIENTES_ENTREGAS` fornece a coluna `TP_ENTREGA`; quando populada com uma tag homologada, ela prevalece sobre as inferências textuais.
 
 ## Testes
 Execute `pytest tests/test_mapper.py` para validar o mapeamento principal. Os utilitários anteriores ligados ao Gnexum foram descontinuados.

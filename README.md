@@ -77,12 +77,13 @@ Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes pr
 |-----------|----------|-----------|
 | Oracle | `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE`, `ORACLE_USER`, `ORACLE_PASS`, `ORACLE_SCHEMA` | Configuração da conexão. |
 |  | `ORACLE_VIEW_VISITAS`, `ORACLE_VIEW_ENTREGAS` ou `ORACLE_VIEWS` | Views lidas pelo polling/CLI. |
-|  | `ORACLE_POLL_WHERE` | Filtro adicional aplicado em tempo de execução. |
+|  | `ORACLE_POLL_WHERE` (global), `ORACLE_POLL_WHERE_VISITAS`, `ORACLE_POLL_WHERE_ENTREGAS` | Filtros padrão aplicados por view (visitas/entregas). |
 | Serviço → Oracle | `SIMPLIROUTE_TARGET_TABLE` (padrão `TD_OTIMIZE_ALTSTAT`) | Tabela que recebe o retorno. |
 |  | `SIMPLIROUTE_TARGET_ACTION_COLUMN` (`ACAO`), `SIMPLIROUTE_TARGET_STATUS_COLUMN` (`STATUS`), `SIMPLIROUTE_TARGET_INFO_COLUMN` (`INFORMACAO`) | Colunas atualizadas pelo webhook. |
 | SimpliRoute | `SIMPLIR_ROUTE_TOKEN` (ou `SIMPLIROUTE_TOKEN`) | Token para chamadas REST. |
 |  | `SIMPLIR_ROUTE_WEBHOOK_TOKEN` | Assinatura exigida no header `Authorization` dos webhooks. |
 | Serviço | `POLLING_INTERVAL_MINUTES` (padrão 60) | Frequência da execução automática. |
+|  | `SIMPLIROUTE_POLL_WHERE` | Filtro explícito usado pelo serviço quando não é passado via CLI. |
 |  | `SIMPLIROUTE_POLLING_LIMIT` | Limite de registros por ciclo. |
 |  | `WEBHOOK_PORT` | Porta exposta pelo FastAPI (9000/8000 etc.). |
 
@@ -102,11 +103,164 @@ Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes pr
 - `--file caminho.json`: usa um arquivo local em vez do Oracle.
 - `--send`: habilita o POST para o SimpliRoute (somente no subcomando `send`).
 
+### Exemplos rápidos (execução local)
+
+````powershell
+# preview – 5 registros (visitas + entregas das views padrão)
+python -m src.cli.send_to_simpliroute preview --limit 5
+
+# preview – 1 visita de enfermagem
+python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'ENFER%' OR UPPER(ESPECIALIDADE) LIKE 'ENFER%')" `
+		--no-save
+
+# preview – 1 visita médica
+python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'MED%' OR UPPER(ESPECIALIDADE) LIKE 'MED%')" `
+		--no-save
+
+# preview – 1 entrega
+python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_ENTREGAS `
+		--no-save
+
+# preview – visitas e entregas simultâneas (2 de cada)
+python -m src.cli.send_to_simpliroute preview `
+		--views VWPACIENTES_COMVISITAS VWPACIENTES_ENTREGAS `
+		--limit 4
+
+# send – 5 registros (visitas + entregas)
+python -m src.cli.send_to_simpliroute send --limit 5 --send
+
+# send – 1 visita de enfermagem
+python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'ENFER%' OR UPPER(ESPECIALIDADE) LIKE 'ENFER%')" `
+		--send
+
+# send – 1 visita médica
+python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'MED%' OR UPPER(ESPECIALIDADE) LIKE 'MED%')" `
+		--send
+
+# send – 1 entrega
+python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_ENTREGAS `
+		--send
+
+# send – reenviar um ID específico
+python -m src.cli.send_to_simpliroute send `
+		--view VWPACIENTES_COMVISITAS `
+		--where "ID_ATENDIMENTO = 32668" `
+		--limit 1 `
+		--send
+
+# diagnóstico rápido do SimpliRoute (token/endpoint)
+python -m src.cli.send_to_simpliroute diagnose-sr --ping
+
+# diagnóstico do Oracle (listar colunas da view)
+python -m src.cli.send_to_simpliroute diagnose-db --limit 3 --view VWPACIENTES_COMVISITAS
+````
+
+### Exemplos equivalentes via Docker
+
+> Substitua `docker compose` por `docker compose -f docker-compose.prod.yml` quando estiver usando o stack de produção.
+
+````powershell
+# preview – 5 registros (visitas + entregas)
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute preview --limit 5
+
+# preview – 1 visita de enfermagem
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'ENFER%' OR UPPER(ESPECIALIDADE) LIKE 'ENFER%')" `
+		--no-save
+
+# preview – 1 visita médica
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'MED%' OR UPPER(ESPECIALIDADE) LIKE 'MED%')" `
+		--no-save
+
+# preview – 1 entrega
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute preview `
+		--limit 1 `
+		--view VWPACIENTES_ENTREGAS `
+		--no-save
+
+# preview – visitas e entregas simultâneas (2 de cada)
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute preview `
+		--views VWPACIENTES_COMVISITAS VWPACIENTES_ENTREGAS `
+		--limit 4
+
+# send – 5 registros (visitas + entregas)
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute send --limit 5 --send
+
+# send – 1 visita de enfermagem
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'ENFER%' OR UPPER(ESPECIALIDADE) LIKE 'ENFER%')" `
+		--send
+
+# send – 1 visita médica
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_COMVISITAS `
+		--where "(UPPER(TIPOVISITA) LIKE 'MED%' OR UPPER(ESPECIALIDADE) LIKE 'MED%')" `
+		--send
+
+# send – 1 entrega
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute send `
+		--limit 1 `
+		--view VWPACIENTES_ENTREGAS `
+		--send
+
+# send – reenviar um ID específico
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute send `
+		--view VWPACIENTES_COMVISITAS `
+		--where "ID_ATENDIMENTO = 32668" `
+		--limit 1 `
+		--send
+
+# diagnóstico rápido do SimpliRoute
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute diagnose-sr --ping
+
+# diagnóstico do Oracle
+docker compose run --rm simpliroute_cli `
+	python -m src.cli.send_to_simpliroute diagnose-db --limit 3 --view VWPACIENTES_COMVISITAS
+````
+
 ### Tipos de visita enviados
 - `med_visit`: visitas médicas (ESPECIALIDADE/TIPOVISITA).
 - `enf_visit`: visitas de enfermagem.
-- `rota_log`: entregas (`TPREGISTRO = 2` ou views de entregas).
-- Valores não homologados são ignorados para manter o catálogo alinhado ao SimpliRoute.
+- `rota_log`: entregas em rota ou neutras (`TPREGISTRO = 2` ou views de entregas sem subtipo).
+- `adm_log`: entregas de material para admissão (detecção por `TIPO_ENTREGA`/`TIPO`).
+- `acr_log`: entregas por acréscimo de material.
+- Tags de retirada (`ret_log`) e mudança de PAD (`pad_log`) permanecem desligadas até homologação da logística.
+- Quando presente, a coluna `TP_ENTREGA` da view de entregas tem prioridade para definir essas tags.
 
 ## 6. Serviço FastAPI (`simpliroute_service` / `integrador_service`)
 

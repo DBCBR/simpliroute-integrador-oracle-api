@@ -27,6 +27,11 @@ def _status_info_column() -> str:
     return os.getenv("SIMPLIROUTE_TARGET_INFO_COLUMN", "INFORMACAO").strip()
 
 
+def _status_id_column() -> str:
+    # Por padrão usamos IDADMISSION (equivalente ao ID_ATENDIMENTO das views)
+    return os.getenv("SIMPLIROUTE_TARGET_ID_COLUMN", "IDADMISSION").strip()
+
+
 def _status_status_column() -> Optional[str]:
     raw = os.getenv("SIMPLIROUTE_TARGET_STATUS_COLUMN", "STATUS")
     return raw.strip() if raw else None
@@ -92,9 +97,9 @@ def _map_status_code(tpregistro: Optional[int], status: Any) -> Optional[int]:
     return None
 
 
-def _fetch_tpregistro(cursor, schema: str, table: str, record_id: int) -> Optional[int]:
+def _fetch_tpregistro(cursor, schema: str, table: str, id_column: str, record_id: int) -> Optional[int]:
     cursor.execute(
-        f"SELECT TPREGISTRO FROM {schema}.{table} WHERE IDREGISTRO = :record_id",
+        f"SELECT TPREGISTRO FROM {schema}.{table} WHERE {id_column} = :record_id",
         {"record_id": record_id},
     )
     row = cursor.fetchone()
@@ -117,11 +122,12 @@ def persist_status_updates(events: Sequence[Dict[str, Any]]) -> None:
     action_col = _status_action_column()
     info_col = _status_info_column()
     status_col = _status_status_column()
+    id_col = _status_id_column()
 
-    update_sql = f"UPDATE {schema}.{target_table} SET {action_col} = :acao, {info_col} = :informacao WHERE IDREGISTRO = :record_id"
+    update_sql = f"UPDATE {schema}.{target_table} SET {action_col} = :acao, {info_col} = :informacao WHERE {id_col} = :record_id"
     status_sql = None
     if status_col:
-        status_sql = f"UPDATE {schema}.{target_table} SET {status_col} = :status_code WHERE IDREGISTRO = :record_id"
+        status_sql = f"UPDATE {schema}.{target_table} SET {status_col} = :status_code WHERE {id_col} = :record_id"
 
     with get_connection() as conn:
         cur = conn.cursor()
@@ -151,7 +157,7 @@ def persist_status_updates(events: Sequence[Dict[str, Any]]) -> None:
                 LOGGER.warning("Falha ao atualizar registro base %s: %s", record_int, exc)
 
             if status_sql:
-                tpregistro = _fetch_tpregistro(cur, schema, target_table, record_int)
+                tpregistro = _fetch_tpregistro(cur, schema, target_table, id_col, record_int)
                 status_code = _map_status_code(tpregistro, sr_status)
                 if status_code is not None:
                     try:

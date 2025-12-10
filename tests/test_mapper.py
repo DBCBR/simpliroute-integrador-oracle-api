@@ -15,14 +15,109 @@ def test_title_and_planned_date_and_properties_order():
 
     out = build_visit_payload(record)
     # title
-    assert out["title"] == "12345 João Silva"
+    assert out["title"] == "João Silva"
     # planned_date
     assert out.get("planned_date") == "2025-12-02"
-    # properties order and keys
-    props = out.get("properties")
-    assert list(props.keys()) == ["PROFISSIONAL", "ESPECIALIDADE", "PERIODICIDADE", "TIPOVISITA"]
-    assert props["PROFISSIONAL"] == "Dr. Fulano"
-    assert props["ESPECIALIDADE"] == "Cardiologia"
+    # No properties block is emitted for visits anymore
+    assert out.get("properties") in (None, {})
+
+
+def test_delivery_planned_date_from_dt_entrega():
+    record = {
+        "ID_ATENDIMENTO": "31514",
+        "NOME_PACIENTE": "Milena",
+        "TPREGISTRO": 2,
+        "DT_ENTREGA": "2025-11-04",
+        "items": [
+            {
+                "NOME_MATERIAL": "Diazepam",
+                "QTD_ITEM_SOLICITADO": 60,
+                "QTD_ITEM_ENVIADO": 60,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("planned_date") == "2025-11-04"
+    assert out.get("visit_type") == "rota_log"
+
+
+def test_delivery_visit_type_from_admissao():
+    record = {
+        "ID_ATENDIMENTO": "4001",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TIPO_ENTREGA": "Admissão",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item Adm",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("visit_type") == "adm_log"
+
+
+def test_delivery_visit_type_from_acrescimo():
+    record = {
+        "ID_ATENDIMENTO": "4002",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TIPO_ENTREGA": "Acréscimo",
+        "TP_ENTREGA": "acr_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item Acr",
+                "QTD_ITEM_SOLICITADO": 2,
+                "QTD_ITEM_ENVIADO": 2,
+            }
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out.get("visit_type") == "acr_log"
+
+
+def test_delivery_visit_type_from_disabled_tags_fallback():
+    record_ret = {
+        "ID_ATENDIMENTO": "5001",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TP_ENTREGA": "ret_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out_ret = build_visit_payload(record_ret)
+    assert out_ret.get("visit_type") == "rota_log"
+
+    record_pad = {
+        "ID_ATENDIMENTO": "5002",
+        "NOME_PACIENTE": "Paciente",
+        "TPREGISTRO": 2,
+        "TP_ENTREGA": "pad_log",
+        "items": [
+            {
+                "NOME_MATERIAL": "Item",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            }
+        ],
+    }
+
+    out_pad = build_visit_payload(record_pad)
+    assert out_pad.get("visit_type") == "rota_log"
 
 
 def test_items_omitted_for_medical_or_nursing():
@@ -59,3 +154,40 @@ def test_duration_and_latlon_mapping():
     record2 = {"ID_ATENDIMENTO": "34", "NOME_PACIENTE": "Y", "duration": 45}
     out2 = build_visit_payload(record2)
     assert out2.get("duration") == "00:45:00"
+
+
+def test_delivery_reference_and_notes():
+    record = {
+        "ID_ATENDIMENTO": "999",
+        "NOME_PACIENTE": "Entrega",
+        "ID_PRESCRICAO": 12,
+        "ID_PROTOCOLO": 34,
+        "TIPO_ENTREGA": "Motoboy",
+        "_source_view": "VWPACIENTES_ENTREGAS",
+        "items": [
+            {
+                "ID_MATERIAL": "MAT123",
+                "NOME_MATERIAL": "Sonda de Gastrostomia Mickey",
+                "QTD_ITEM_SOLICITADO": 5,
+                "QTD_ITEM_ENVIADO": 1,
+            },
+            {
+                "ID_MATERIAL": "MAT456",
+                "NOME_MATERIAL": "Extensor para Gastrostomia",
+                "QTD_ITEM_SOLICITADO": 1,
+                "QTD_ITEM_ENVIADO": 1,
+            },
+        ],
+    }
+
+    out = build_visit_payload(record)
+
+    assert out["visit_type"] == "rota_log"
+    assert out["reference"] == "1234"
+    assert out["items"][0]["reference"] == "MAT123"
+    assert out["items"][0]["quantity_planned"] == 5.0
+    assert out["items"][0]["quantity_delivered"] is None
+
+    notes_lines = out["notes"].splitlines()
+    assert notes_lines[0].endswith(" - 0001/0005")
+    assert notes_lines[1].endswith(" - 0001/0001")
