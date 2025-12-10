@@ -113,15 +113,22 @@ def _zero_pad_quantity(value: Any) -> str:
 
 
 def _wrap_material_description(text: str, width: int = MAX_MATERIAL_LINE_LENGTH) -> List[str]:
+    """Retorna apenas a primeira linha (truncada) respeitando o limite de largura."""
+
     if not text:
         return []
+
     wrapped = textwrap.wrap(
         text,
         width=width,
         break_long_words=False,
         break_on_hyphens=False,
     )
-    return wrapped if wrapped else [text]
+
+    if wrapped:
+        return [wrapped[0]]
+
+    return [text[:width]]
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
