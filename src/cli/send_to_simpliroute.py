@@ -92,6 +92,7 @@ def _collect_records(
     limit: int,
     where: str | None,
     view_names: Sequence[str] | None,
+    order_by: str | None = None,
 ) -> List[Dict[str, Any]]:
     if use_db:
         targets = list(view_names or []) or [None]
@@ -99,7 +100,7 @@ def _collect_records(
         for target_view in targets:
             effective_where = resolve_where_clause(target_view, where)
             rows.extend(
-                fetch_grouped_records(limit=limit, where_clause=effective_where, view_name=target_view)
+                fetch_grouped_records(limit=limit, where_clause=effective_where, view_name=target_view, order_by=order_by)
             )
         return rows
     if file_path:
@@ -259,6 +260,7 @@ def _run_send_flow(args: argparse.Namespace) -> int:
             args.limit,
             where,
             resolved_views,
+            getattr(args, "order_by", None),
         )
     except Exception as exc:
         print(f"Erro ao obter registros: {exc}")
@@ -447,6 +449,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--where": {
             "type": str,
             "help": "Cláusula WHERE adicional aplicada à consulta Oracle",
+        },
+        "--order-by": {
+            "type": str,
+            "help": "Cláusula ORDER BY (ex.: EVENTDATE DESC) aplicada à consulta Oracle",
         },
         "--view": {
             "type": str,

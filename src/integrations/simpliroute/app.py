@@ -293,6 +293,9 @@ def _extract_webhook_events(body: Any) -> List[Dict[str, Any]]:
     if isinstance(body, list):
         return [item for item in body if isinstance(item, dict)]
     if isinstance(body, dict):
+        event_hints = ("reference", "status", "external_id", "externalId", "id")
+        if any(body.get(key) not in (None, "") for key in event_hints):
+            return [body]
         for key in ("visits", "data", "items"):
             value = body.get(key)
             if isinstance(value, list):

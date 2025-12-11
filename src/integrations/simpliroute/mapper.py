@@ -4,6 +4,7 @@ from collections import OrderedDict
 import unicodedata
 from datetime import datetime, date
 import textwrap
+import re
 
 
 DEFAULT_DURATION_MINUTES = {
@@ -21,6 +22,7 @@ DEFAULT_WINDOW_RANGES = {
 
 
 MAX_MATERIAL_LINE_LENGTH = 58
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _minutes_to_hhmmss(minutes: int) -> str:
@@ -146,6 +148,20 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _sanitize_email(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    if not text or "@" not in text:
+        return None
+    if not EMAIL_PATTERN.match(text):
+        return None
+    return text
 
 
 def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -472,7 +488,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # contact/reference/notes fields expected by SimpliRoute
     contact_name = _get("PESSOACONTATO") or _get("contact_name") or ""
     contact_phone = _get("TELEFONES") or _get("contact_phone") or ""
-    contact_email = _get("EMAIL") or _get("contact_email") or None
+    contact_email = _sanitize_email(_get("EMAIL") or _get("contact_email"))
     payload["contact_name"] = contact_name
     payload["contact_phone"] = contact_phone
     payload["contact_email"] = contact_email
@@ -506,7 +522,9 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     if not payload.get("contact_phone"):
         payload["contact_phone"] = first_row.get("TELEFONES") or first_row.get("telefones") or payload.get("contact_phone") or ""
     if payload.get("contact_email") in (None, ""):
-        payload["contact_email"] = first_row.get("EMAIL") or first_row.get("email") or payload.get("contact_email")
+        payload["contact_email"] = _sanitize_email(
+            first_row.get("EMAIL") or first_row.get("email") or payload.get("contact_email")
+        )
 
     def _map_gnexum_row_to_item(r: Dict[str, Any]) -> Dict[str, Any]:
         # Criar um item representando a visita/serviço para este row do Gnexum
@@ -755,12 +773,12 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # Map ESPECIALIDADE (valor do Gnexum) para a key esperada pelo SimpliRoute
     esp_val_record = (_get("ESPECIALIDADE") or _get("especialidade") or (first_row.get("ESPECIALIDADE") if isinstance(first_row, dict) else "") or "")
 
-    esp_lower = str(esp_val_record or "").lower()
+    esp_clean = _normalize_descriptor_value(esp_val_record)
 
     visit_type_key = None
-    if esp_lower and ("enferm" in esp_lower or "enfermeito" in esp_lower):
+    if esp_clean and ("enferm" in esp_clean or "enfermeir" in esp_clean or "enfermeito" in esp_clean):
         visit_type_key = "enf_visit"
-    elif esp_lower and any(tok in esp_lower for tok in ("medico", "médico", "med", "pediatria")):
+    elif esp_clean and any(tok in esp_clean for tok in ("medico", "medica", "med", "pediatria")):
         visit_type_key = "med_visit"
 
     # Definir visit_type APENAS quando houver mapeamento conhecido a partir de ESPECIALIDADE.
@@ -769,10 +787,10 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     else:
         # se não temos mapeamento por ESPECIALIDADE, tentar inferir pela string de TIPOVISITA
         if isinstance(visit_type_val, str) and visit_type_val:
-            vt_low = visit_type_val.lower()
-            if "enferm" in vt_low:
+            vt_norm = _normalize_descriptor_value(visit_type_val)
+            if "enferm" in vt_norm:
                 ordered["visit_type"] = "enf_visit"
-            elif any(tok in vt_low for tok in ("med", "méd", "pediatria")):
+            elif any(tok in vt_norm for tok in ("medico", "medica", "med", "pediatria")):
                 ordered["visit_type"] = "med_visit"
     ordered["current_eta"] = payload.get("current_eta")
     ordered["fleet"] = payload.get("fleet")

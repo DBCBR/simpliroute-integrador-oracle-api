@@ -15,9 +15,8 @@ Este pacote concentra o serviço FastAPI responsável por:
 - `ORACLE_POLL_WHERE` (global), `ORACLE_POLL_WHERE_VISITAS` e `ORACLE_POLL_WHERE_ENTREGAS` para filtros (`WHERE`) adicionais.
 - `ORACLE_STATUS_SCHEMA` (opcional) — schema usado ao atualizar a tabela de status (default: `ORACLE_SCHEMA`).
 - `SIMPLIROUTE_TARGET_TABLE` (default `TD_OTIMIZE_ALTSTAT`).
-- `SIMPLIROUTE_TARGET_ACTION_COLUMN` (default `ACAO`) — recebe `A/E/S` conforme status do SR.
 - `SIMPLIROUTE_TARGET_INFO_COLUMN` (default `INFORMACAO`) — armazena o JSON completo recebido no webhook.
-- `SIMPLIROUTE_TARGET_STATUS_COLUMN` (default `STATUS`) — preenche códigos numéricos (0/1/2/3) conforme `TPREGISTRO`.
+- `SIMPLIROUTE_TARGET_STATUS_COLUMN` (default `STATUS`) — recebe códigos `4/5/6` (Parcial/Total/Falha) ao refletir o retorno do SR.
 
 ### SimpliRoute
 - `SIMPLIR_ROUTE_TOKEN` (ou `SIMPLIROUTE_TOKEN`).
@@ -59,7 +58,7 @@ Invoke-RestMethod -Uri http://localhost:8000/health/ready
 4. O resultado é registrado em `data/work/service_events.log`.
 
 ### Webhook → Oracle
-`persist_status_updates()` grava diretamente na `SIMPLIROUTE_TARGET_TABLE`, preenchendo `ACAO` (A/E/S), `INFORMACAO` (payload bruto) e, quando configurado, a coluna `STATUS` (0/1/2/3) conforme a combinação `TPREGISTRO` + status recebido. Ajuste as variáveis para apontar o schema/tabela corretos do IW.
+`persist_status_updates()` insere um novo registro na `SIMPLIROUTE_TARGET_TABLE` para cada evento recebido. O serviço preenche `IDREFERENCE` (ID do protocolo), `EVENTDATE`, `IDADMISSION` (ID do atendimento), `IDREGISTRO` (ID da prescrição), `TPREGISTRO`, `STATUS` (`4 = entrega parcial`, `5 = entrega total`, `6 = falha na entrega`) e `INFORMACAO` (payload bruto do webhook). Ajuste as variáveis para apontar o schema/tabela corretos do IW.
 
 ### Visit types (`visit_type`)
 - `med_visit` e `enf_visit`: consultas médicas/enfermagem detectadas por `ESPECIALIDADE`/`TIPOVISITA`.
