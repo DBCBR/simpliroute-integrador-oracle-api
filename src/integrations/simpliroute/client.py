@@ -35,11 +35,21 @@ async def post_simpliroute(route_payload: Dict[str, Any]) -> Optional[httpx.Resp
     else:
         body = [route_payload]
 
-    # Dry-run support intentionally disabled to ensure real posts are performed.
-    # Historically this respected SIMPLIROUTE_DRY_RUN and returned a fake response
-    # for previews; that behavior is removed so the CLI always performs real requests.
-    # (If you need to simulate requests for local tests, update tests to mock the HTTP client.)
-    pass
+    # Test-mode / dry-run support:
+    # - `SIMPLIROUTE_DISABLE_SEND=1` will block all HTTP POSTs and return a fake
+    #   successful response. This is intended for infra testing environments.
+    # - For backward compatibility, `SIMPLIROUTE_DRY_RUN=1` is also respected.
+    # Removing these variables (or setting to '0') restores normal behavior.
+    if os.getenv("SIMPLIROUTE_DISABLE_SEND", "0") == "1" or os.getenv("SIMPLIROUTE_DRY_RUN", "0") == "1":
+        class _FakeResp:
+            def __init__(self):
+                self.status_code = 200
+                self.text = "DRY_RUN"
+
+            def json(self):
+                return {}
+
+        return _FakeResp()
 
     try:
         # prune body to only fields expected by SimpliRoute to avoid sending extra info
