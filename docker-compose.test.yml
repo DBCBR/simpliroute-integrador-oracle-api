@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  integrador:
+    environment:
+      SIMPLIROUTE_AUTO_COMMAND: "preview"
+      SIMPLIR_ROUTE_TOKEN: ""
+
+  integrador_limit1:
+    environment:
+      SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
+      SIMPLIR_ROUTE_TOKEN: ""
+
+  integrador_preview:
+    environment:
+      SIMPLIROUTE_AUTO_COMMAND: "preview"
+      SIMPLIR_ROUTE_TOKEN: ""
+
+  integrador_preview_limit1:
+    environment:
+      SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
+      SIMPLIR_ROUTE_TOKEN: ""
