@@ -309,6 +309,30 @@ docker compose up simpliroute_cli_limit1   # execução pontual do CLI
   2. `python -m src.cli.send_to_simpliroute send --limit 1 --send`.
   3. Envie um webhook de teste e confirme `ACAO/STATUS/INFORMACAO` no Oracle.
 
+### Testes em infraestrutura (modo seguro, sem envios)
+
+Para que a equipe de infra execute testes sem enviar dados reais ao SimpliRoute, temos um procedimento seguro:
+
+- Crie/uso do arquivo de ambiente: `settings/.env.test` (já incluído no repositório). Este arquivo deve conter, no mínimo:
+	- `SIMPLIR_ROUTE_TOKEN=` (vazio)
+	- `SIMPLIROUTE_POLL_WHERE=1=0`
+	- `SIMPLIROUTE_DISABLE_SEND=1`
+
+- Use um override do compose `docker-compose.test.yml` (força `preview` nos serviços CLI).
+
+- Comando recomendado (PowerShell):
+
+```
+docker compose -f docker-compose.prod.yml -f docker-compose.test.yml --env-file settings/.env.test up -d --build
+```
+
+- Verificações:
+	- `docker compose -f docker-compose.prod.yml -f docker-compose.test.yml --env-file settings/.env.test logs --tail 200`
+	- `Get-Content data/output/send_history.log -Tail 200`
+	- `dir data\output\send_to_sr_*.json`
+
+Observação: o cliente HTTP agora respeita `SIMPLIROUTE_DISABLE_SEND=1` ou `SIMPLIROUTE_DRY_RUN=1` e retornará uma resposta simulada sem executar POSTs.
+
 ## 9. Troubleshooting
 
 | Sintoma | Causa provável | Ação sugerida |
