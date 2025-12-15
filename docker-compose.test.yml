@@ -1,7 +1,7 @@
 
 services:
   integrador:
-    image: integradorsr-integrador:latest
+    image: ghcr.io/DBCBR/integradorsr-integrador:latest
     env_file:
       - ./settings/.env.test
     environment:
@@ -10,9 +10,13 @@ services:
       SIMPLIROUTE_DISABLE_SEND: "1"
       SIMPLIROUTE_DRY_RUN: "1"
       SIMPLIROUTE_POLL_WHERE: "1=0"
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
 
   integrador_limit1:
-    image: integradorsr-integrador_limit1:latest
+    image: ghcr.io/DBCBR/integradorsr-integrador_limit1:latest
     env_file:
       - ./settings/.env.test
     environment:
@@ -21,9 +25,13 @@ services:
       SIMPLIROUTE_DISABLE_SEND: "1"
       SIMPLIROUTE_DRY_RUN: "1"
       SIMPLIROUTE_POLL_WHERE: "1=0"
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
 
   integrador_preview:
-    image: integradorsr-integrador_preview:latest
+    image: ghcr.io/DBCBR/integradorsr-integrador_preview:latest
     env_file:
       - ./settings/.env.test
     environment:
@@ -32,9 +40,13 @@ services:
       SIMPLIROUTE_DISABLE_SEND: "1"
       SIMPLIROUTE_DRY_RUN: "1"
       SIMPLIROUTE_POLL_WHERE: "1=0"
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
 
   integrador_preview_limit1:
-    image: integradorsr-integrador_preview_limit1:latest
+    image: ghcr.io/DBCBR/integradorsr-integrador_preview_limit1:latest
     env_file:
       - ./settings/.env.test
     environment:
@@ -43,12 +55,27 @@ services:
       SIMPLIROUTE_DISABLE_SEND: "1"
       SIMPLIROUTE_DRY_RUN: "1"
       SIMPLIROUTE_POLL_WHERE: "1=0"
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
 
   integrador_service:
-    image: integradorsr-simpliroute:prod
+    image: ghcr.io/DBCBR/integradorsr-simpliroute:prod
     env_file:
       - ./settings/.env.test
     environment:
       SIMPLIROUTE_DISABLE_SEND: "1"
       SIMPLIROUTE_DRY_RUN: "1"
       SIMPLIROUTE_POLL_WHERE: "1=0"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
