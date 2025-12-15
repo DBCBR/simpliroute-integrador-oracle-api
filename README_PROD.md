@@ -61,5 +61,28 @@ docker compose -f docker-compose.prod.yml down
 - Se preferirem não copiar o ZIP para o repositório, podem extrair o Instant Client num diretório do host (ex: `/opt/oracle/instantclient`) e montar esse diretório para `/opt/oracle/instantclient` dentro do container adicionando um `volumes` override no `docker-compose.prod.yml` ou via `docker compose run -v /opt/oracle/instantclient:/opt/oracle/instantclient:ro ...`.
 - Certificar-se que o usuário que roda o container tem acesso de escrita a `./data/output` **e** `./data/work`.
 
+**Procedimento de teste sem envios reais**
+
+Adicionamos uma forma segura de a equipe de infra executar smoke-tests sem postar dados ao SimpliRoute:
+
+- Arquivo: `settings/.env.test` (presente no repositório). Deve conter:
+  - `SIMPLIR_ROUTE_TOKEN=` (vazio)
+  - `SIMPLIROUTE_POLL_WHERE=1=0`
+  - `SIMPLIROUTE_DISABLE_SEND=1`
+
+- Override compose: `docker-compose.test.yml` força `SIMPLIROUTE_AUTO_COMMAND: "preview"` nos serviços CLI.
+
+- Comando de exemplo (Linux):
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.test.yml --env-file settings/.env.test up -d --build
+```
+
+- Confirmação de que nada foi enviado:
+  - `docker compose -f docker-compose.prod.yml -f docker-compose.test.yml --env-file settings/.env.test logs --tail 200`
+  - `ls data/output | grep send_to_sr_`
+
+Observação: a combinação de token vazio + `SIMPLIROUTE_DISABLE_SEND=1` + override `preview` é defesa em profundidade para evitar envios acidentais durante testes.
+
 **Suporte**
 - Se quiser, eu posso abrir um branch com estes arquivos e criar um PR para `dev` (workflow: branch → PR → merge). Quer que eu faça o commit e abra o PR? Caso contrário, a equipe de infra pode copiar estes arquivos direto no servidor.
