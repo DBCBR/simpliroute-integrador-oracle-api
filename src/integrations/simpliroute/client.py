@@ -35,22 +35,19 @@ async def post_simpliroute(route_payload: Dict[str, Any]) -> Optional[httpx.Resp
     else:
         body = [route_payload]
 
-    # If running in DRY_RUN mode, do not perform network calls — print payload and return simulated response
-    dry = os.getenv('SIMPLIROUTE_DRY_RUN', '0').lower() in ('1', 'true', 'yes')
-    if dry:
-        try:
-            import json
-
-            print('[DRY-RUN] SIMPLIROUTE_DRY_RUN enabled; payload preview:')
-            print(json.dumps(route_payload, ensure_ascii=False, indent=2))
-        except Exception:
-            print('[DRY-RUN] failed to serialize payload for preview')
-        # return a simulated successful response-like object
+    # Test-mode / dry-run support:
+    # - `SIMPLIROUTE_DISABLE_SEND=1` will block all HTTP POSTs and return a fake
+    #   successful response. This is intended for infra testing environments.
+    # - For backward compatibility, `SIMPLIROUTE_DRY_RUN=1` is also respected.
+    # Removing these variables (or setting to '0') restores normal behavior.
+    if os.getenv("SIMPLIROUTE_DISABLE_SEND", "0") == "1" or os.getenv("SIMPLIROUTE_DRY_RUN", "0") == "1":
         class _FakeResp:
-            status_code = 200
-
             def __init__(self):
-                self.text = '{"simulated": true}'
+                self.status_code = 200
+                self.text = "DRY_RUN"
+
+            def json(self):
+                return {}
 
         return _FakeResp()
 

@@ -124,6 +124,7 @@ def fetch_view_rows(
     limit: Optional[int] = None,
     where_clause: Optional[str] = None,
     view_name: Optional[str] = None,
+    order_by: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Retorna rows cruas da view Oracle como lista de dicts."""
     schema = _require_env("ORACLE_SCHEMA")
@@ -131,6 +132,8 @@ def fetch_view_rows(
     sql = f"SELECT * FROM {schema}.{view}"
     if where_clause:
         sql += f" WHERE {where_clause}"
+    if order_by:
+        sql += f" ORDER BY {order_by}"
     params: Dict[str, Any] = {}
     if limit and limit > 0:
         sql = f"SELECT * FROM ({sql}) WHERE ROWNUM <= :limit"
@@ -150,9 +153,10 @@ def fetch_grouped_records(
     limit: Optional[int] = None,
     where_clause: Optional[str] = None,
     view_name: Optional[str] = None,
+    order_by: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     effective_view = view_name or _require_env("ORACLE_VIEW")
-    rows = fetch_view_rows(limit=limit, where_clause=where_clause, view_name=effective_view)
+    rows = fetch_view_rows(limit=limit, where_clause=where_clause, view_name=effective_view, order_by=order_by)
     grouped: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
     for row in rows:
         key = _group_key(row)

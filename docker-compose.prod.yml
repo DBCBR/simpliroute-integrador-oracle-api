@@ -1,5 +1,3 @@
-version: '3.8'
-
 x-integrador-env: &integrador-env
   ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
 
@@ -8,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: integradorsr-simpliroute:prod
+    # image tag removed from base to avoid concurrent tagging conflicts
     env_file:
       - ./settings/.env
     environment:
@@ -44,6 +42,7 @@ services:
 
   integrador_service:
     <<: *integrador-base
+    image: integradorsr-simpliroute:prod
     command: >-
       uvicorn src.integrations.simpliroute.app:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
