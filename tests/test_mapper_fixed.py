@@ -88,7 +88,7 @@ def test_delivery_reference_and_notes():
     assert out["reference"] == "1234"
     assert out["items"][0]["reference"] == "MAT123"
     assert out["items"][0]["quantity_planned"] == 5.0
-    assert out["items"][0]["quantity_delivered"] == 1.0
+    assert out["items"][0]["quantity_delivered"] is None
 
     notes_lines = out["notes"].splitlines()
     assert notes_lines[0].endswith(" - 0001/0005")

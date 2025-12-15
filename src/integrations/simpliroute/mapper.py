@@ -5,6 +5,7 @@ import unicodedata
 from datetime import datetime, date
 import textwrap
 import re
+import math
 
 
 DEFAULT_DURATION_MINUTES = {
@@ -148,6 +149,19 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _ceil_quantity(value: Any, default: float = 0.0) -> float:
+    """Converte o valor para float e aplica `ceil` (arredonda sempre para cima).
+
+    - Se `value` for None ou vazio, usa `default`.
+    - Retorna um `float` com valor inteiro (ex: 3.0).
+    """
+    num = _to_float(value, default=default)
+    try:
+        return float(math.ceil(num))
+    except Exception:
+        return float(math.ceil(_to_float(default, 0.0)))
 
 
 def _sanitize_email(value: Any) -> str | None:
@@ -558,7 +572,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             "load_2": float(r.get("load_2") or 0.0),
             "load_3": float(r.get("load_3") or 0.0),
             "reference": str(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("reference") or ""),
-            "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 1.0),
+            "quantity_planned": _ceil_quantity(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 1.0, default=1.0),
             "notes": notes,
         }
 
@@ -620,8 +634,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                 or 0.0
             )
 
-            qty_planned = _to_float(qty_requested_raw, default=1.0)
-            qty_delivered = _to_float(qty_delivered_raw, default=0.0)
+            qty_planned = _ceil_quantity(qty_requested_raw, default=1.0)
+            qty_delivered = _ceil_quantity(qty_delivered_raw, default=0.0)
 
             item_reference = (
                 r.get("ID_MATERIAL")
@@ -639,6 +653,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                 wrapped_lines[-1] = f"{wrapped_lines[-1]} - {suffix}"
                 delivery_note_lines.extend(wrapped_lines)
 
+            # note: `quantity_delivered` remains None per integration contract
+            # but suffix and internal representations should use ceiled numbers
             item = {
                 "title": title_item,
                 "status": "pending",
@@ -668,7 +684,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                         "load_2": float(r.get("load_2") or 0.0),
                         "load_3": float(r.get("load_3") or 0.0),
                         "reference": r.get("reference") or r.get("ref") or "",
-                        "quantity_planned": float(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0),
+                        "quantity_planned": _ceil_quantity(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0, default=0.0),
                         "notes": r.get("notes", ""),
                     }
 
@@ -681,7 +697,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                     "load_2": float(base.get("load_2") or 0.0),
                     "load_3": float(base.get("load_3") or 0.0),
                     "reference": base.get("reference") or "",
-                    "quantity_planned": float(base.get("quantity_planned") or 1.0),
+                    "quantity_planned": _ceil_quantity(base.get("quantity_planned") or 1.0, default=1.0),
                     "quantity_delivered": None,
                 }
                 items.append(item)
