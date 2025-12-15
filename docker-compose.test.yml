@@ -7,6 +7,9 @@ services:
     environment:
       SIMPLIROUTE_AUTO_COMMAND: "preview"
       SIMPLIR_ROUTE_TOKEN: ""
+      SIMPLIROUTE_DISABLE_SEND: "1"
+      SIMPLIROUTE_DRY_RUN: "1"
+      SIMPLIROUTE_POLL_WHERE: "1=0"
 
   integrador_limit1:
     image: integradorsr-integrador_limit1:latest
@@ -15,6 +18,9 @@ services:
     environment:
       SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
       SIMPLIR_ROUTE_TOKEN: ""
+      SIMPLIROUTE_DISABLE_SEND: "1"
+      SIMPLIROUTE_DRY_RUN: "1"
+      SIMPLIROUTE_POLL_WHERE: "1=0"
 
   integrador_preview:
     image: integradorsr-integrador_preview:latest
@@ -23,6 +29,9 @@ services:
     environment:
       SIMPLIROUTE_AUTO_COMMAND: "preview"
       SIMPLIR_ROUTE_TOKEN: ""
+      SIMPLIROUTE_DISABLE_SEND: "1"
+      SIMPLIROUTE_DRY_RUN: "1"
+      SIMPLIROUTE_POLL_WHERE: "1=0"
 
   integrador_preview_limit1:
     image: integradorsr-integrador_preview_limit1:latest
@@ -31,8 +40,15 @@ services:
     environment:
       SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
       SIMPLIR_ROUTE_TOKEN: ""
+      SIMPLIROUTE_DISABLE_SEND: "1"
+      SIMPLIROUTE_DRY_RUN: "1"
+      SIMPLIROUTE_POLL_WHERE: "1=0"
 
   integrador_service:
     image: integradorsr-simpliroute:prod
     env_file:
       - ./settings/.env.test
+    environment:
+      SIMPLIROUTE_DISABLE_SEND: "1"
+      SIMPLIROUTE_DRY_RUN: "1"
+      SIMPLIROUTE_POLL_WHERE: "1=0"
