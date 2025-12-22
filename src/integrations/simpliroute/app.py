@@ -308,6 +308,7 @@ def _extract_webhook_events(body: Any) -> List[Dict[str, Any]]:
 async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     try:
         payload = await request.json()
+        LOGGER.info(f"Payload recebido: {payload}")
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
