@@ -308,6 +308,7 @@ def _extract_webhook_events(body: Any) -> List[Dict[str, Any]]:
 async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     try:
         payload = await request.json()
+        LOGGER.info(f"Payload recebido: {payload}")
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
@@ -323,6 +324,14 @@ async def webhook_simpliroute(request: Request, background: BackgroundTasks):
     try:
         with open(filename, "w", encoding="utf-8") as handler:
             json.dump(payload, handler, ensure_ascii=False, indent=2)
+        # Log de recebimento de webhook
+        with open("data/work/service_events.log", "a", encoding="utf-8") as log_fp:
+            log_fp.write(json.dumps({
+                "stage": "webhook_received",
+                "filename": filename,
+                "timestamp": int(time.time()),
+                "payload_preview": str(payload)[:200]
+            }, ensure_ascii=False) + "\n")
     except Exception as exc:
         LOGGER.error("Falha ao persistir payload do webhook: %s", exc)
         return JSONResponse({"error": "io_failure"}, status_code=500)

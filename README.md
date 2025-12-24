@@ -1,10 +1,10 @@
 # Integrador SR → SimpliRoute
 
-Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes principais:
+Plataforma de integração entre banco IW/Oracle e SimpliRoute, composta por:
 
-- **CLI** para gerar, inspecionar e enviar payloads manualmente.
-- **Serviço FastAPI** que roda continuamente (polling + webhook) para sincronizar os dados a cada hora.
-- **Persistência de retorno**: cada webhook recebido atualiza `TD_OTIMIZE_ALTSTAT` preenchendo `ACAO`, `STATUS` e `INFORMACAO`.
+- **CLI**: scripts para gerar, inspecionar e enviar payloads manualmente ou em lote.
+- **Serviço FastAPI**: executa polling periódico nas views Oracle e expõe endpoints para webhooks, automatizando a sincronização dos dados.
+- **Persistência de retorno**: cada webhook recebido do SimpliRoute é salvo em arquivo e atualiza a tabela Oracle configurada (`TD_OTIMIZE_ALTSTAT` por padrão), preenchendo as colunas de ação, status e informações detalhadas.
 
 ## Sumário
 - [Integrador SR → SimpliRoute](#integrador-sr--simpliroute)
@@ -32,20 +32,20 @@ Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes pr
 	- [11. Contato e autoria](#11-contato-e-autoria)
 
 ## 1. Arquitetura resumida
-1. **Polling Oracle**: o serviço lê as views configuradas (visitas e entregas) com `fetch_grouped_records`.
-2. **Mapeamento**: cada registro passa por `mapper.py`, que normaliza endereço, contatos, itens e define `visit_type` (`med_visit`, `enf_visit` ou `rota_log`).
-3. **Envio ao SimpliRoute**: o CLI ou o serviço chama `POST /v1/routes/visits/` usando o token configurado.
-4. **Webhook**: o SimpliRoute devolve o status via `POST /webhook/simpliroute`. O JSON é salvo em `data/work/webhooks/` e o Oracle é atualizado.
+1. **Polling Oracle**: o serviço lê as views configuradas (visitas e entregas) usando `oracle_source.py`.
+2. **Mapeamento**: cada registro é processado por `mapper.py`, que normaliza endereço, contatos, itens e define o tipo de visita/entrega.
+3. **Envio ao SimpliRoute**: CLI ou serviço executam chamadas HTTP para a API SimpliRoute via `client.py`.
+4. **Webhook**: SimpliRoute retorna status via `POST /webhook/simpliroute`. O JSON é salvo em `data/work/webhooks/` e o Oracle é atualizado por `oracle_status_sync.py`.
 5. **Colunas atualizadas no Oracle**:
-   - `ACAO`: `A` (aguardando), `E` (entregue) ou `S` (suspensa).
-    - `STATUS`: valores numéricos distintos por `TPREGISTRO` (visitas ou entregas).
-    - `INFORMACAO`: JSON completo para auditoria.
+	- `ACAO`: `A` (aguardando), `E` (entregue) ou `S` (suspensa).
+	- `STATUS`: valores numéricos distintos por `TPREGISTRO` (visitas ou entregas).
+	- `INFORMACAO`: JSON completo para auditoria.
 
 ## 2. Pré-requisitos
-- Python 3.11+ para uso local do CLI e Docker/Docker Compose para execução containerizada.
-- Oracle Instant Client (Windows e Linux) armazenado em `settings/instantclient/`.
-- Arquivo `settings/.env` com credenciais Oracle, tokens SimpliRoute e parâmetros de polling.
-- Acesso de **SELECT/UPDATE** na tabela `TD_OTIMIZE_ALTSTAT` (colunas `ACAO`, `STATUS`, `INFORMACAO`).
+	- Python 3.11+ para uso local do CLI e Docker/Docker Compose para execução containerizada.
+	- Oracle Instant Client (Windows e Linux) armazenado em `settings/instantclient/`.
+	- Arquivo `settings/.env` ou `settings/config.yaml` com credenciais Oracle, tokens SimpliRoute e parâmetros de polling.
+	- Acesso de **SELECT/UPDATE** na tabela de destino (padrão: `TD_OTIMIZE_ALTSTAT`), nas colunas configuradas.
 
 ### Estrutura do Instant Client
 - `settings/instantclient/windows/instantclient_23_0/...`: executa localmente no Windows.
@@ -62,13 +62,17 @@ Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes pr
    pip install -r requirements.txt
    ```
 
-3. **Validar a conexão Oracle** ajustando `ORACLE_*` em `settings/.env` e executando `python -m src.cli.send_to_simpliroute preview --limit 1`.
+3. **Validar a conexão Oracle** ajustando `ORACLE_*` em `settings/.env` ou `settings/config.yaml` e executando `python -m src.cli.send_to_simpliroute preview --limit 1`.
 4. **Configurar Docker (opcional)**: `docker compose build` já inclui o Instant Client quando os zips estão no diretório correto.
 
 ### Estrutura de diretórios relevantes
 - `data/input/`: arquivos de entrada opcionais para testes.
 - `data/output/`: payloads gerados pelo CLI (`send_to_sr_*.json`).
-- `data/work/`: logs do serviço (`service_events.log`) e webhooks (`data/work/webhooks/*.json`).
+- `data/work/`: logs do serviço (`service_events.log`) e webhooks recebidos (`data/work/webhooks/*.json`).
+- `scripts/`: utilitários para checagem, envio e visualização de status.
+- `src/`: código-fonte principal, incluindo integrações, mapeamento, cliente HTTP e sincronização de status.
+- `settings/`: arquivos de configuração e dependências do Oracle Instant Client.
+- `tests/`: scripts de teste, exemplos e validação de payloads.
 - `tests/manual/webhook_sample.http`: requisição pronta para testar o webhook.
 
 ## 4. Variáveis de ambiente principais
@@ -76,12 +80,12 @@ Plataforma que conecta o banco IW/Oracle ao SimpliRoute com três componentes pr
 | Categoria | Variável | Descrição |
 |-----------|----------|-----------|
 | Oracle | `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE`, `ORACLE_USER`, `ORACLE_PASS`, `ORACLE_SCHEMA` | Configuração da conexão. |
-|  | `ORACLE_VIEW_VISITAS`, `ORACLE_VIEW_ENTREGAS` ou `ORACLE_VIEWS` | Views lidas pelo polling/CLI. |
-|  | `ORACLE_POLL_WHERE` (global), `ORACLE_POLL_WHERE_VISITAS`, `ORACLE_POLL_WHERE_ENTREGAS` | Filtros padrão aplicados por view (visitas/entregas). |
+|  | `ORACLE_VIEW_VISITAS`, `ORACLE_VIEW_ENTREGAS`, `ORACLE_VIEWS` | Views lidas pelo polling/CLI. |
+|  | `ORACLE_POLL_WHERE`, `ORACLE_POLL_WHERE_VISITAS`, `ORACLE_POLL_WHERE_ENTREGAS` | Filtros padrão aplicados por view. |
 | Serviço → Oracle | `SIMPLIROUTE_TARGET_TABLE` (padrão `TD_OTIMIZE_ALTSTAT`) | Tabela que recebe o retorno. |
-|  | `SIMPLIROUTE_TARGET_ACTION_COLUMN` (`ACAO`), `SIMPLIROUTE_TARGET_STATUS_COLUMN` (`STATUS`), `SIMPLIROUTE_TARGET_INFO_COLUMN` (`INFORMACAO`) | Colunas atualizadas pelo webhook. |
+|  | `SIMPLIROUTE_TARGET_ACTION_COLUMN`, `SIMPLIROUTE_TARGET_STATUS_COLUMN`, `SIMPLIROUTE_TARGET_INFO_COLUMN` | Colunas atualizadas pelo webhook. |
 | SimpliRoute | `SIMPLIR_ROUTE_TOKEN` (ou `SIMPLIROUTE_TOKEN`) | Token para chamadas REST. |
-|  | `SIMPLIR_ROUTE_WEBHOOK_TOKEN` | Assinatura exigida no header `Authorization` dos webhooks. |
+|  | `SIMPLIR_ROUTE_WEBHOOK_TOKEN` | Token exigido no header `Authorization` dos webhooks. |
 | Serviço | `POLLING_INTERVAL_MINUTES` (padrão 60) | Frequência da execução automática. |
 |  | `SIMPLIROUTE_POLL_WHERE` | Filtro explícito usado pelo serviço quando não é passado via CLI. |
 |  | `SIMPLIROUTE_POLLING_LIMIT` | Limite de registros por ciclo. |
@@ -173,7 +177,7 @@ python -m src.cli.send_to_simpliroute diagnose-db --limit 3 --view VWPACIENTES_C
 
 ### Exemplos equivalentes via Docker
 
-> Substitua `docker compose` por `docker compose -f docker-compose.prod.yml` quando estiver usando o stack de produção.
+> Substitua `docker compose` por `docker compose -f docker-compose.prod.yml` para ambiente de produção.
 
 ````powershell
 # preview – 5 registros (visitas + entregas)
@@ -253,13 +257,13 @@ docker compose run --rm simpliroute_cli `
 	python -m src.cli.send_to_simpliroute diagnose-db --limit 3 --view VWPACIENTES_COMVISITAS
 ````
 
-### Tipos de visita enviados
+### Tipos de visita/entrega enviados
 - `med_visit`: visitas médicas (ESPECIALIDADE/TIPOVISITA).
 - `enf_visit`: visitas de enfermagem.
 - `rota_log`: entregas em rota ou neutras (`TPREGISTRO = 2` ou views de entregas sem subtipo).
-- `adm_log`: entregas de material para admissão (detecção por `TIPO_ENTREGA`/`TIPO`).
+- `adm_log`: entregas de material para admissão (detectado por campos de tipo).
 - `acr_log`: entregas por acréscimo de material.
-- Tags de retirada (`ret_log`) e mudança de PAD (`pad_log`) permanecem desligadas até homologação da logística.
+- Tags de retirada (`ret_log`) e mudança de PAD (`pad_log`) podem ser ativadas conforme evolução da logística.
 - Quando presente, a coluna `TP_ENTREGA` da view de entregas tem prioridade para definir essas tags.
 
 ## 6. Serviço FastAPI (`simpliroute_service` / `integrador_service`)
@@ -271,16 +275,16 @@ uvicorn src.integrations.simpliroute.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Endpoints
-- `GET /health`, `/health/live`, `/health/ready`: usados pelos healthchecks do Docker e monitoria.
-- `POST /webhook/simpliroute`: recebe eventos, valida o token opcional e dispara `persist_status_updates`.
+- `GET /health`, `/health/live`, `/health/ready`: endpoints de healthcheck para monitoramento e Docker.
+- `POST /webhook/simpliroute`: recebe eventos do SimpliRoute, valida o token e dispara persistência no Oracle.
 
 ### Webhook → Oracle
-- Cada evento gera um arquivo em `data/work/webhooks/webhook_<timestamp>.json`.
-- `ACAO` recebe `A`, `E` ou `S` conforme o status do SimpliRoute.
-- `STATUS` usa códigos diferentes por `TPREGISTRO`:
-  - `TPREGISTRO = 1` (visitas): `0` Planejada, `1` Programada, `2` Realizada.
-  - `TPREGISTRO = 2` (entregas): `0` Em preparação, `2` Dispensação, `3` Em rota.
-- `INFORMACAO` guarda o JSON completo para auditoria.
+ - Cada evento gera um arquivo em `data/work/webhooks/webhook_<timestamp>.json`.
+ - `ACAO` recebe `A`, `E` ou `S` conforme o status do SimpliRoute.
+ - `STATUS` usa códigos diferentes por `TPREGISTRO`:
+	 - `TPREGISTRO = 1` (visitas): `0` Planejada, `1` Programada, `2` Realizada.
+	 - `TPREGISTRO = 2` (entregas): `0` Em preparação, `2` Dispensação, `3` Em rota.
+ - `INFORMACAO` guarda o JSON completo para auditoria.
 
 > Teste manualmente com `tests/manual/webhook_sample.http` (VS Code REST Client) ou adapte para `curl`.
 
@@ -305,9 +309,9 @@ docker compose up simpliroute_cli_limit1   # execução pontual do CLI
 ## 8. Testes e validação
 - Configure `PYTHONPATH` para a raiz (`set PYTHONPATH=%CD%` no Windows) e rode `pytest tests/test_mapper.py tests/test_mapper_fixed.py`.
 - Para validar um ciclo completo manualmente:
-  1. `python -m src.cli.send_to_simpliroute preview --limit 1`.
-  2. `python -m src.cli.send_to_simpliroute send --limit 1 --send`.
-  3. Envie um webhook de teste e confirme `ACAO/STATUS/INFORMACAO` no Oracle.
+	1. `python -m src.cli.send_to_simpliroute preview --limit 1`.
+	2. `python -m src.cli.send_to_simpliroute send --limit 1 --send`.
+	3. Envie um webhook de teste e confirme `ACAO/STATUS/INFORMACAO` no Oracle.
 
 ### Testes em infraestrutura (modo seguro, sem envios)
 
@@ -331,14 +335,14 @@ docker compose -f docker-compose.prod.yml -f docker-compose.test.yml --env-file 
 	- `Get-Content data/output/send_history.log -Tail 200`
 	- `dir data\output\send_to_sr_*.json`
 
-Observação: o cliente HTTP agora respeita `SIMPLIROUTE_DISABLE_SEND=1` ou `SIMPLIROUTE_DRY_RUN=1` e retornará uma resposta simulada sem executar POSTs.
+Observação: o cliente HTTP respeita `SIMPLIROUTE_DISABLE_SEND=1` ou `SIMPLIROUTE_DRY_RUN=1` e retorna resposta simulada sem executar POSTs.
 
 ## 9. Troubleshooting
 
 | Sintoma | Causa provável | Ação sugerida |
 |---------|----------------|---------------|
-| `ORA-01031: insufficient privileges` ao receber webhook | Usuário Oracle sem `UPDATE` em `TD_OTIMIZE_ALTSTAT` | Solicitar grant específico (UPDATE nas colunas usadas). |
-| `ORA-00942: table or view does not exist` | `ORACLE_SCHEMA`/`SIMPLIROUTE_TARGET_TABLE` incorretos ou sem permissão | Ajustar `.env` e confirmar acesso. |
+| `ORA-01031: insufficient privileges` ao receber webhook | Usuário Oracle sem `UPDATE` na tabela de destino | Solicitar grant específico (UPDATE nas colunas usadas). |
+| `ORA-00942: table or view does not exist` | `ORACLE_SCHEMA`/`SIMPLIROUTE_TARGET_TABLE` incorretos ou sem permissão | Ajustar `.env`/`config.yaml` e confirmar acesso. |
 | `HTTP 400` com `Object with key=... does not exist` | `visit_type` inexistente no SimpliRoute | Manter `med_visit`, `enf_visit`, `rota_log` ou cadastrar o novo tipo. |
 | Webhook `401` | Header `Authorization` ausente ou token incorreto | Definir `SIMPLIR_ROUTE_WEBHOOK_TOKEN` e enviar `Bearer <token>`. |
 
