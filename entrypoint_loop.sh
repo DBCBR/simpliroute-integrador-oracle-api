@@ -5,6 +5,6 @@
 while true; do
     echo "[Entrypoint] Executando: python -m src.cli.send_to_simpliroute auto"
     python -m src.cli.send_to_simpliroute auto
-    echo "[Entrypoint] Aguardando 1 hora para próxima execução..."
-    sleep 3600
+    echo "[Entrypoint] Aguardando 30 minutos para próxima execução..."
+    sleep 1800
 done

@@ -26,7 +26,7 @@ services:
     <<: *integrador-base
     environment:
       <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "send --limit 100 --send"
+      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1000 --send"
     # Usa o entrypoint padrão do Dockerfile (loop)
 
   simpliroute_webhook_server:
