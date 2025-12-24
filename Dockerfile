@@ -48,7 +48,11 @@ RUN if [ -d "/app/settings/instantclient/linux" ]; then \
 
 # Expose Instant Client lib location to the runtime via env
 ENV ORACLE_INSTANT_CLIENT=/opt/oracle/instantclient
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
 
-# Comando padrão: executa o modo automático que, por padrão, envia os dados ao SimpliRoute
-CMD ["python", "-m", "src.cli.send_to_simpliroute", "auto"]
+# Copia o entrypoint de loop
+COPY entrypoint_loop.sh /app/entrypoint_loop.sh
+RUN chmod +x /app/entrypoint_loop.sh
+
+# Comando padrão: executa o loop de envio automático
+ENTRYPOINT ["/app/entrypoint_loop.sh"]

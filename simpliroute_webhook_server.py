@@ -73,16 +73,24 @@ logger = get_logger()
 
 
 # --- Conexão Oracle via SQLAlchemy ---
-def build_oracle_engine() -> Engine:
 
-    # Detecta SO e configura thick mode
+def build_oracle_engine() -> Engine:
     import platform
     system = platform.system().lower()
     if system == "windows":
         instantclient_path = os.path.abspath("settings/instantclient/windows/instantclient-basic-windows.x64-23.26.0.0.0/instantclient_23_0")
     else:
-        # Espera-se que o zip tenha sido extraído para esta pasta:
-        instantclient_path = os.path.abspath("settings/instantclient/linux/instantclient-basic-linux.x64-23.26.0.0.0/instantclient_23_26")
+        # Se LD_LIBRARY_PATH já estiver definida, use-a diretamente
+        ld_lib_path = os.environ.get("LD_LIBRARY_PATH")
+        if ld_lib_path and os.path.isdir(ld_lib_path):
+            instantclient_path = ld_lib_path
+        else:
+            # Caminho padrão esperado
+            instantclient_path = os.path.abspath("settings/instantclient/linux/instantclient-basic-linux.x64-23.26.0.0.0/")
+            if not os.path.isdir(instantclient_path):
+                raise RuntimeError(f"Oracle Instant Client não encontrado em {instantclient_path} e LD_LIBRARY_PATH não está definida corretamente.")
+            os.environ['LD_LIBRARY_PATH'] = instantclient_path
+            
     oracledb.init_oracle_client(lib_dir=instantclient_path)
 
     user = os.getenv("ORACLE_USER")
