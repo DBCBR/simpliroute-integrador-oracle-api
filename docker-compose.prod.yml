@@ -22,34 +22,18 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  integrador_limit1:
+  integrador_limit:
     <<: *integrador-base
     environment:
       <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1 --send"
+      SIMPLIROUTE_AUTO_COMMAND: "send --limit 100 --send"
+    # Usa o entrypoint padrão do Dockerfile (loop)
 
-  integrador_preview:
-    <<: *integrador-base
-    environment:
-      <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "preview"
-
-  integrador_preview_limit1:
-    <<: *integrador-base
-    environment:
-      <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "preview --limit 1"
-
-  integrador_service:
+  simpliroute_webhook_server:
     <<: *integrador-base
     image: integradorsr-simpliroute:prod
     command: >-
-      uvicorn src.integrations.simpliroute.app:app --host 0.0.0.0 --port 8000
+      python simpliroute_webhook_server.py
     restart: unless-stopped
     ports:
       - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/live"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
