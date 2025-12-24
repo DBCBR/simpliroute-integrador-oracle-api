@@ -26,14 +26,15 @@ services:
     <<: *integrador-base
     environment:
       <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "send --limit 100 --send"
-    # Usa o entrypoint padrão do Dockerfile (loop)
+      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1000 --send"
+    entrypoint: ["/app/entrypoint_loop.sh"]
+    command: []
 
   simpliroute_webhook_server:
     <<: *integrador-base
     image: integradorsr-simpliroute:prod
-    command: >-
-      python simpliroute_webhook_server.py
+    entrypoint: ["python", "simpliroute_webhook_server.py"]
+    command: []
     restart: unless-stopped
     ports:
       - "8000:8000"

@@ -227,7 +227,7 @@ async def receive_webhook(request: Request):
         return JSONResponse({"error": "io_failure"}, status_code=500)
 
     # Printa o JSON recebido
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    # print(json.dumps(payload, ensure_ascii=False, indent=2))
     
     # Log estruturado
     logger.info(json.dumps({
@@ -237,7 +237,10 @@ async def receive_webhook(request: Request):
     }, ensure_ascii=False))
 
     # Registra no banco Oracle
-    registrar_payload_oracle(payload, engine, logger)
+    try:
+        registrar_payload_oracle(payload, engine, logger)
+    except Exception as exc:
+        logger.error(f"Falha ao registrar payload no banco Oracle: {exc}")
 
     return JSONResponse({"status": "received", "logged": str(filename)})
 

@@ -16,7 +16,15 @@ RUN if [ -f /lib/x86_64-linux-gnu/libaio.so.1t64 ] && [ ! -f /lib/x86_64-linux-g
 
 # Instala dependências Python
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt \
+    && pip install --no-cache-dir fastapi>=0.100.0 \
+    && pip install --no-cache-dir uvicorn[standard]>=0.20.0 \
+    && pip install --no-cache-dir httpx>=0.24.0 \
+    && pip install --no-cache-dir oracledb>=1.0.0 \
+    && pip install --no-cache-dir SQLAlchemy>=1.4.0 \
+    && pip install --no-cache-dir python-dotenv>=1.0.1 \
+    && pip install --no-cache-dir PyYAML>=6.0.2 \
+    && pip install --no-cache-dir apscheduler>=3.10.1
 
 # Copia o projeto
 COPY . /app
@@ -54,5 +62,5 @@ ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
 COPY entrypoint_loop.sh /app/entrypoint_loop.sh
 RUN chmod +x /app/entrypoint_loop.sh
 
-# Comando padrão: executa o loop de envio automático
-ENTRYPOINT ["/app/entrypoint_loop.sh"]
+# Comando padrão: executa o modo automático (pode ser sobrescrito no compose)
+CMD ["python", "-m", "src.cli.send_to_simpliroute", "auto"]
