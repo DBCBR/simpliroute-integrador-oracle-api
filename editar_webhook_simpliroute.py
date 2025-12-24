@@ -97,7 +97,7 @@ if __name__ == "__main__":
         raise SystemExit("Defina a env SIMPLIROUTE_TOKEN com seu token da SimpliRoute.")
 
     event = "visit_checkout_detailed"
-    ngrok_url = "https://dissatisfied-nonnationally-jesse.ngrok-free.dev"
+    ngrok_url = "https://api-v2.otimize.med.br"
 
 
     result = create_or_update_webhook(
