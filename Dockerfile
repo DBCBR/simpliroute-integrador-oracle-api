@@ -58,9 +58,5 @@ RUN if [ -d "/app/settings/instantclient/linux" ]; then \
 ENV ORACLE_INSTANT_CLIENT=/opt/oracle/instantclient
 ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
 
-# Copia o entrypoint de loop
-COPY entrypoint_loop.sh /app/entrypoint_loop.sh
-RUN chmod +x /app/entrypoint_loop.sh
 
-# Comando padrão: executa o modo automático (pode ser sobrescrito no compose)
-CMD ["python", "-m", "src.cli.send_to_simpliroute", "auto"]
+# O entrypoint e comando padrão serão definidos pelo docker-compose para cada serviço.

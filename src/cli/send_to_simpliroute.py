@@ -1,3 +1,4 @@
+
 import argparse
 import asyncio
 import json
@@ -6,6 +7,10 @@ import shlex
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
+
+import sys
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import httpx
 
@@ -519,7 +524,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     _load_cached_config()
+    os.environ["SIMPLIROUTE_AUTO_COMMAND"] = "send --limit 1 --send"
     parser = _build_parser()
+    import sys
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        argv = ["auto"]
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
         parser.print_help()

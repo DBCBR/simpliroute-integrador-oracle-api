@@ -1,40 +1,45 @@
-x-integrador-env: &integrador-env
-  ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
 
 services:
-  integrador: &integrador-base
+  simpliroute_webhook_server:
     build:
       context: .
       dockerfile: Dockerfile
-    # image tag removed from base to avoid concurrent tagging conflicts
     env_file:
       - ./settings/.env
     environment:
-      <<: *integrador-env
+      ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
     volumes:
       - ./settings:/app/settings:ro
       - ./data/output:/app/data/output:rw
       - ./data/work:/app/data/work:rw
-    restart: "no"
+    entrypoint: ["python", "simpliroute_webhook_server.py"]
+    command: []
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  integrador_limit:
-    <<: *integrador-base
+  simpliroute_send:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./settings/.env
     environment:
-      <<: *integrador-env
-      SIMPLIROUTE_AUTO_COMMAND: "send --limit 1000 --send"
-    entrypoint: ["/app/entrypoint_loop.sh"]
+      ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
+    volumes:
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
+    entrypoint: ["python", "simpliroute_send.py"]
     command: []
-
-  simpliroute_webhook_server:
-    <<: *integrador-base
-    image: integradorsr-simpliroute:prod
-    entrypoint: ["python", "simpliroute_webhook_server.py"]
-    command: []
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -47,8 +47,10 @@ STRUCTURED_LOG_DIR.mkdir(parents=True, exist_ok=True)
 # Configuração do logger estruturado (sem duplicidade)
 class JsonFormatter(logging.Formatter):
     def format(self, record):
+        # Usa datetime.now(timezone.utc) e ajusta para UTC-3
+        dt_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
         log_record = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": dt_utc3.isoformat(),
             "level": record.levelname,
             "message": record.getMessage(),
             "name": record.name,
@@ -64,9 +66,15 @@ def get_logger():
         log_file = STRUCTURED_LOG_DIR / "webhook_server.log"
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(JsonFormatter())
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(JsonFormatter())
         logger.handlers.clear()
         logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
         logger._handler_set = True
+        # Prints informativos sobre onde os logs serão salvos
+        print(f"[INFO] Logs de arquivo serão salvos em: {log_file}")
+        print(f"[INFO] Logs de terminal serão exibidos no console.")
     return logger
 
 logger = get_logger()
@@ -216,7 +224,7 @@ async def receive_webhook(request: Request):
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
     # Salva o payload em arquivo com nome ISO8601
-    now = datetime.now().replace(microsecond=0).isoformat().replace(":", "-")
+    now = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0).isoformat().replace(":", "-")
     filename = WEBHOOK_LOG_DIR / f"webhook_{now}.json"
     try:
         with open(filename, "w", encoding="utf-8") as f:
