@@ -227,3 +227,5 @@ settings/instantclient/**
 !settings/instantclient/windows/.gitkeep
 !settings/instantclient/linux/
 !settings/instantclient/linux/.gitkeep
+simpliroute_send_logs/
+simpliroute_webhook_logs/

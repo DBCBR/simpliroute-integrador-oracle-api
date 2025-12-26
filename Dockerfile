@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir SQLAlchemy>=1.4.0 \
     && pip install --no-cache-dir python-dotenv>=1.0.1 \
     && pip install --no-cache-dir PyYAML>=6.0.2 \
-    && pip install --no-cache-dir apscheduler>=3.10.1
+    && pip install --no-cache-dir apscheduler>=3.10.1 \
+    && pip install --no-cache-dir traceback
 
 # Copia o projeto
 COPY . /app
@@ -58,9 +59,5 @@ RUN if [ -d "/app/settings/instantclient/linux" ]; then \
 ENV ORACLE_INSTANT_CLIENT=/opt/oracle/instantclient
 ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
 
-# Copia o entrypoint de loop
-COPY entrypoint_loop.sh /app/entrypoint_loop.sh
-RUN chmod +x /app/entrypoint_loop.sh
 
-# Comando padrão: executa o modo automático (pode ser sobrescrito no compose)
-CMD ["python", "-m", "src.cli.send_to_simpliroute", "auto"]
+# O entrypoint e comando padrão serão definidos pelo docker-compose para cada serviço.
