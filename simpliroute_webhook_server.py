@@ -158,12 +158,10 @@ def registrar_payload_oracle(payload: dict, engine: Engine, logger) -> None:
             tpregistro = 1
         else:
             tpregistro = 2  # default entrega
-            
-    #
+
     # O id reference é sempre o campo do JSON "reference"
     # O id admission é igual ao reference se tpregistro=1 (visita), caso contrário é nulo
     # O id registro é os 6 primeiros caracteres do reference se tpregistro=2 (entrega), caso contrário é nulo. Isso corresponde ao ID PRESCRICAO
-    #
     idreference = to_int(get_first("reference"))
     idregistro = None
     if tpregistro == 1: # Visita
@@ -186,10 +184,33 @@ def registrar_payload_oracle(payload: dict, engine: Engine, logger) -> None:
         status = 6
         informacao = "Falha na entrega"
 
+    # TRACE LOG dos dados intermediários
+    logger.info(json.dumps({
+        "trace": "dados para registrar_payload_oracle",
+        "idreference": idreference,
+        "eventdate": str(eventdate),
+        "idadmission": idadmission,
+        "idregistro": idregistro,
+        "tpregistro": tpregistro,
+        "status": status,
+        "informacao": informacao,
+        "payload_reference": get_first("reference"),
+        "payload_status": status_str,
+        "payload_visit_type": payload.get("visit_type"),
+        "checkout_comment": payload.get("checkout_comment"),
+        "checkout_rota2": payload.get("extra_field_values", {}).get("checkout_rota2"),
+    }, ensure_ascii=False))
+
+    # Protege concatenação de NoneType
     checkout_comment = payload.get("checkout_comment")
     checkout_rota2 = payload.get("extra_field_values", {}).get("checkout_rota2")
-    
+    if checkout_comment is None:
+        checkout_comment = ""
+    if checkout_rota2 is None:
+        checkout_rota2 = ""
     obs = checkout_comment + " | " + checkout_rota2
+    if obs == " | ": # Observação vazia
+        obs = None
 
     insert_sql = f"""
         INSERT INTO {schema}.{table} (IDREFERENCE, EVENTDATE, IDADMISSION, IDREGISTRO, TPREGISTRO, STATUS, INFORMACAO, OBS)
@@ -205,6 +226,18 @@ def registrar_payload_oracle(payload: dict, engine: Engine, logger) -> None:
         "informacao": informacao,
         "obs": obs,
     }
+    logger.info(json.dumps({"trace": "params para insert", **params}, ensure_ascii=False, default=str))
+
+    # Salva os dados do insert em arquivo JSON na pasta WEBHOOK_LOG_DIR
+    try:
+        now = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0).isoformat().replace(":", "-")
+        filename = WEBHOOK_LOG_DIR / f"database_insert_{now}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(params, f, ensure_ascii=False, indent=2, default=str)
+        logger.info(f"Dados do insert salvos em {filename}")
+    except Exception as exc:
+        logger.error(f"Falha ao salvar dados do insert em arquivo: {exc}")
+
     try:
         with engine.begin() as conn:
             conn.execute(text(insert_sql), params)
@@ -249,7 +282,8 @@ async def receive_webhook(request: Request):
         try:
             registrar_payload_oracle(payload, engine, logger)
         except Exception as exc:
-            logger.error(f"Falha ao registrar payload no banco Oracle: {exc}")
+            tb_str = traceback.format_exc()
+            logger.error(f"Falha ao registrar payload no banco Oracle: {exc}\nTraceback:\n{tb_str}")
 
         return JSONResponse({"status": "received", "logged": str(filename)})
     except Exception as exc:
