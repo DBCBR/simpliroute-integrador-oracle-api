@@ -1,5 +1,39 @@
 
 services:
+  simpliroute_send:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./settings/.env
+    environment:
+      ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
+    entrypoint: ["python", "simpliroute_send.py"]
+    command: []
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+ #  IMPORTANTE:
+    # volumes aqui substitui o volumes herdado do integrador-base,
+    # então precisamos repetir os volumes do base e adicionar os logs.
+    volumes:
+      # mounts originais
+      - ./settings:/app/settings:ro
+      - ./data/output:/app/data/output:rw
+      - ./data/work:/app/data/work:rw
+ 
+      #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
+      - ./logs/webhook_server:/app/logs:rw
+ 
+      #  payloads recebidos: /app/simpliroute_send_logs/webhook_*.json -> host ./logs/webhook_payloads/
+      - ./logs/webhook_payloads:/app/simpliroute_send_logs:rw
+
+
   simpliroute_webhook_server:
     build:
       context: .
@@ -8,10 +42,6 @@ services:
       - ./settings/.env
     environment:
       ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
-    volumes:
-      - ./settings:/app/settings:ro
-      - ./data/output:/app/data/output:rw
-      - ./data/work:/app/data/work:rw
     entrypoint: ["python", "simpliroute_webhook_server.py"]
     command: []
     restart: unless-stopped
@@ -23,23 +53,18 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  simpliroute_send:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - ./settings/.env
-    environment:
-      ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
+
+ #  IMPORTANTE:
+    # volumes aqui substitui o volumes herdado do integrador-base,
+    # então precisamos repetir os volumes do base e adicionar os logs.
     volumes:
+      # mounts originais
       - ./settings:/app/settings:ro
       - ./data/output:/app/data/output:rw
       - ./data/work:/app/data/work:rw
-    entrypoint: ["python", "simpliroute_send.py"]
-    command: []
-    restart: "no"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+ 
+      #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
+      - ./logs/webhook_server:/app/logs:rw
+ 
+      #  payloads recebidos: /app/simpliroute_webhook_logs/webhook_*.json -> host ./logs/webhook_payloads/
+      - ./logs/webhook_payloads:/app/simpliroute_webhook_logs:rw
