@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 from typing import Any, Dict, Optional
 # Forçar thick mode do Oracle
 import oracledb
+import traceback
 
 
 # Utilitário para ler .env
@@ -209,48 +210,52 @@ def registrar_payload_oracle(payload: dict, engine: Engine, logger) -> None:
             conn.execute(text(insert_sql), params)
         logger.info(f"Payload registrado no banco Oracle: idreference={idreference} idadmission={idadmission} status={status}")
     except Exception as exc:
-        logger.error(f"Falha ao inserir payload no banco Oracle: {exc}")
+        tb_str = traceback.format_exc()
+        logger.error(f"Falha ao inserir payload no banco Oracle: {exc}\nTraceback:\n{tb_str}")
 
 
 app = FastAPI(title="SimpliRoute Webhook Server")
 
 # >>>>>> Função principal de recebimento do webhook na rota
+
 @app.post(WEBHOOK_ROUTE)
 async def receive_webhook(request: Request):
     try:
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            logger.error(f"Falha ao decodificar JSON: {exc}")
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+
+        # Salva o payload em arquivo com nome ISO8601
+        now = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0).isoformat().replace(":", "-")
+        filename = WEBHOOK_LOG_DIR / f"webhook_{now}.json"
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.info(f"Payload salvo em {filename}")
+        except Exception as exc:
+            logger.error(f"Falha ao salvar payload: {exc}")
+            return JSONResponse({"error": "io_failure"}, status_code=500)
+
+        # Log estruturado
+        logger.info(json.dumps({
+            "event": "webhook_received",
+            "filename": str(filename),
+            "payload_preview": str(payload)[:200]
+        }, ensure_ascii=False))
+
+        # Registra no banco Oracle
+        try:
+            registrar_payload_oracle(payload, engine, logger)
+        except Exception as exc:
+            logger.error(f"Falha ao registrar payload no banco Oracle: {exc}")
+
+        return JSONResponse({"status": "received", "logged": str(filename)})
     except Exception as exc:
-        logger.error(f"Falha ao decodificar JSON: {exc}")
-        return JSONResponse({"error": "invalid json"}, status_code=400)
-
-    # Salva o payload em arquivo com nome ISO8601
-    now = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0).isoformat().replace(":", "-")
-    filename = WEBHOOK_LOG_DIR / f"webhook_{now}.json"
-    try:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        logger.info(f"Payload salvo em {filename}")
-    except Exception as exc:
-        logger.error(f"Falha ao salvar payload: {exc}")
-        return JSONResponse({"error": "io_failure"}, status_code=500)
-
-    # Printa o JSON recebido
-    # print(json.dumps(payload, ensure_ascii=False, indent=2))
-    
-    # Log estruturado
-    logger.info(json.dumps({
-        "event": "webhook_received",
-        "filename": str(filename),
-        "payload_preview": str(payload)[:200]
-    }, ensure_ascii=False))
-
-    # Registra no banco Oracle
-    try:
-        registrar_payload_oracle(payload, engine, logger)
-    except Exception as exc:
-        logger.error(f"Falha ao registrar payload no banco Oracle: {exc}")
-
-    return JSONResponse({"status": "received", "logged": str(filename)})
+        tb_str = traceback.format_exc()
+        logger.error(f"Exceção não controlada em receive_webhook: {exc}\nTraceback:\n{tb_str}")
+        return JSONResponse({"error": "internal_server_error"}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,4 +1,5 @@
 import os
+import traceback
 import json
 import time
 from datetime import datetime, timezone, timedelta
@@ -1214,7 +1215,8 @@ def main_loop():
                     f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
                 logger.info(f"Envio concluído {idx}/{len(records)}: reference={record.get('ID_ATENDIMENTO')}")
         except Exception as exc:
-            logger.error(f"Erro no loop de envio: {exc}")
+            tb_str = traceback.format_exc()
+            logger.error(f"Erro no loop de envio: {exc}\nTraceback:\n{tb_str}")
         logger.info("--- FIM DE ENVIO ---")
         time.sleep(SEND_INTERVAL_SECONDS)
 

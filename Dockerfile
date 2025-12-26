@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt \
     && pip install --no-cache-dir SQLAlchemy>=1.4.0 \
     && pip install --no-cache-dir python-dotenv>=1.0.1 \
     && pip install --no-cache-dir PyYAML>=6.0.2 \
-    && pip install --no-cache-dir apscheduler>=3.10.1
+    && pip install --no-cache-dir apscheduler>=3.10.1 \
+    && pip install --no-cache-dir traceback
 
 # Copia o projeto
 COPY . /app
