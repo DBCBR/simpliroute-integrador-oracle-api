@@ -304,7 +304,8 @@ def registrar_payload_oracle(payload: Dict[str, Any], engine: Engine, logger: lo
             idadmission = to_int(get_first("reference"))
         else:
             idadmission = None
-            idregistro = str(get_first("reference"))[:6] if get_first("reference") is not None else None
+            # id registro = últimos 6 dígitos de reference
+            idregistro = str(get_first("reference"))[-6:] if get_first("reference") is not None else None
 
         # status / informacao
         status_str = str(payload.get("status") or "").lower()

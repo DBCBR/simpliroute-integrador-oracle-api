@@ -493,7 +493,8 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         prescricao = _get_from_any("ID_PRESCRICAO")
         protocolo = _get_from_any("ID_PROTOCOLO")
         if prescricao and protocolo:
-            return f"{_normalize_numeric_string(prescricao)}{_normalize_numeric_string(protocolo)}"
+            # Referência = protocolo + prescrição
+            return f"{_normalize_numeric_string(protocolo)}{_normalize_numeric_string(prescricao)}"
         return ""
 
     if is_delivery_like:
