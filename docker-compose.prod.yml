@@ -10,7 +10,9 @@ services:
       ORACLE_INSTANT_CLIENT: /opt/oracle/instantclient
     entrypoint: ["python", "simpliroute_send.py"]
     command: []
-    restart: "no"
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
     logging:
       driver: json-file
       options:
@@ -23,15 +25,13 @@ services:
     # então precisamos repetir os volumes do base e adicionar os logs.
     volumes:
       # mounts originais
-      - ./settings:/app/settings:ro
-      - ./data/output:/app/data/output:rw
-      - ./data/work:/app/data/work:rw
+      - ./settings:/settings:ro
  
       #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
       - ./logs/webhook_server:/app/logs:rw
  
       #  payloads recebidos: /app/simpliroute_send_logs/webhook_*.json -> host ./logs/webhook_payloads/
-      - ./logs/webhook_payloads:/app/simpliroute_send_logs:rw
+      - ./simpliroute_send_error_logs:/app/simpliroute_send_error_logs:rw
 
 
   simpliroute_webhook_server:
@@ -59,12 +59,10 @@ services:
     # então precisamos repetir os volumes do base e adicionar os logs.
     volumes:
       # mounts originais
-      - ./settings:/app/settings:ro
-      - ./data/output:/app/data/output:rw
-      - ./data/work:/app/data/work:rw
+      - ./settings:/settings:ro
  
       #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
       - ./logs/webhook_server:/app/logs:rw
  
       #  payloads recebidos: /app/simpliroute_webhook_logs/webhook_*.json -> host ./logs/webhook_payloads/
-      - ./logs/webhook_payloads:/app/simpliroute_webhook_logs:rw
+      - ./simpliroute_webhook_error_logs:/app/simpliroute_webhook_error_logs:rw

@@ -29,16 +29,29 @@ SEND_INTERVAL_SECONDS = 60
 SEND_LIMIT = int(os.getenv("ORACLE_FETCH_LIMIT", "100"))
 LOG_TO_FILE = False
 
+HEALTH_CHECK_ROUTE = "/health_send"
+
 ERROR_LOG_DIR = Path("simpliroute_send_error_logs")
 STRUCTURED_LOG_DIR = Path("logs")
 ERROR_LOG_DIR.mkdir(parents=True, exist_ok=True)
 STRUCTURED_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Limpa o diretório de erros ao iniciar
-for f in list(ERROR_LOG_DIR.iterdir()):
+
+# Limite de arquivos de erro mantidos
+MAX_ERROR_FILES = 50
+# Lista global dos nomes dos arquivos de erro (ordenados do mais novo para o mais antigo)
+error_files = []
+
+ERROR_LOG_DIR.mkdir(parents=True, exist_ok=True)
+STRUCTURED_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Inicializa error_files com os arquivos já existentes (ordenados do mais novo para o mais antigo)
+existing = sorted([f for f in ERROR_LOG_DIR.iterdir() if f.is_file() and f.name.startswith("error-")], reverse=True)
+error_files.extend([str(f) for f in existing[:MAX_ERROR_FILES]])
+# Remove arquivos antigos excedentes
+for f in existing[MAX_ERROR_FILES:]:
     try:
-        if f.is_file():
-            f.unlink()
+        f.unlink()
     except Exception:
         pass
 
@@ -127,7 +140,7 @@ def _rollover_day_if_needed(now_utc3: datetime) -> None:
 
 
 def save_error_stacktrace(exc: Exception, extra_info: dict | None = None) -> str:
-    global erros_total, erros_hoje
+    global erros_total, erros_hoje, error_files
     dt_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
 
     with stats_lock:
@@ -145,6 +158,17 @@ def save_error_stacktrace(exc: Exception, extra_info: dict | None = None) -> str
         if extra_info:
             f.write("\nExtra info:\n")
             f.write(json.dumps(extra_info, ensure_ascii=False, indent=2, default=str))
+
+    # Atualiza lista global de arquivos
+    error_files.insert(0, str(filename))
+    if len(error_files) > MAX_ERROR_FILES:
+        # Remove o mais antigo
+        to_remove = error_files.pop()
+        try:
+            os.remove(to_remove)
+        except Exception:
+            pass
+
     return str(filename)
 
 
@@ -270,7 +294,9 @@ def fetch_records(limit: int, offset: int = 0) -> List[Dict[str, Any]]:
 def update_envioroteirizador(id_prescription, id_protocolo) -> None:
     global envios_total, envios_hoje
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Calcula data/hora atual em UTC-3
+    now_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
+    now_str = now_utc3.strftime("%Y-%m-%d %H:%M:%S")
     try:
         schema = os.getenv("ORACLE_SCHEMA")
         sql = f"""
@@ -321,12 +347,13 @@ def send_to_simpliroute(payload: Dict[str, Any]) -> Dict[str, Any]:
     import httpx
 
     base_url = os.getenv("SIMPLIROUTE_API_BASE") or "https://api.simpliroute.com"
-    token = os.getenv("SIMPLIROUTE_TOKEN")
+    token = os.getenv("SIMPLIROUTE_TOKEN") or "b9f38f3d5d85763de9d76dc0f063ea987497d354"
     headers = {"Content-Type": "application/json; charset=utf-8"}
     if token:
         headers["Authorization"] = f"Token {token}"
 
     url = f"{base_url.rstrip('/')}/v1/routes/visits/"
+    logger.info(f"Tentando enviar para SimpliRoute com token {token[:4]}...{token[-4:]}")
     try:
         response = httpx.post(url, json=[payload], headers=headers, timeout=30)
         logger.info(f"Enviado para SimpliRoute: HTTP {response.status_code}")
@@ -446,7 +473,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SimpliRoute Send Health Server", lifespan=lifespan)
 
 
-@app.get("/health")
+@app.get(HEALTH_CHECK_ROUTE)
 async def health_check():
     dt_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
 
