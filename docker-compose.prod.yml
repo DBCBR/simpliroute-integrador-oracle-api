@@ -1,4 +1,3 @@
-
 services:
   simpliroute_send:
     build:
@@ -18,22 +17,22 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-
- #  IMPORTANTE:
+ 
+ 
+#  IMPORTANTE:
     # volumes aqui substitui o volumes herdado do integrador-base,
     # então precisamos repetir os volumes do base e adicionar os logs.
     volumes:
       # mounts originais
-      - ./settings:/settings:ro
- 
+      - ./settings:/simple_route/Integrador-SR-main/settings:ro
+
       #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
-      - ./logs/webhook_server:/app/logs:rw
+      - ./logs/webhook_server:/simple_route/Integrador-SR-main/app/simpliroute_webhook_error_logs:rw
+
+      #  payloads recebidos: /app/simpliroute_send_logs/webhook_*.json -> host ./logs/webhook_send_error/
+      - ./logs/webhook_payloads:/simple_route/Integrador-SR-main/app/simpliroute_send_error_logs:rw
  
-      #  payloads recebidos: /app/simpliroute_send_logs/webhook_*.json -> host ./logs/webhook_payloads/
-      - ./simpliroute_send_error_logs:/app/simpliroute_send_error_logs:rw
-
-
+ 
   simpliroute_webhook_server:
     build:
       context: .
@@ -52,17 +51,18 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-
- #  IMPORTANTE:
+ 
+ 
+#  IMPORTANTE:
     # volumes aqui substitui o volumes herdado do integrador-base,
     # então precisamos repetir os volumes do base e adicionar os logs.
     volumes:
-      # mounts originais
-      - ./settings:/settings:ro
- 
+     # mounts originais
+      - ./settings:/simple_route/Integrador-SR-main/settings:ro
+
       #  log estruturado: /app/logs/webhook_server.log -> host ./logs/webhook_server/
-      - ./logs/webhook_server:/app/logs:rw
- 
-      #  payloads recebidos: /app/simpliroute_webhook_logs/webhook_*.json -> host ./logs/webhook_payloads/
-      - ./simpliroute_webhook_error_logs:/app/simpliroute_webhook_error_logs:rw
+      - ./logs/webhook_server:/simple_route/Integrador-SR-main/app/simpliroute_webhook_error_logs:rw
+
+      #  payloads recebidos: /app/simpliroute_send_logs/webhook_*.json -> host ./logs/webhook_send_error/
+      - ./logs/webhook_payloads:/simple_route/Integrador-SR-main/app/simpliroute_send_error_logs:rw
+      
