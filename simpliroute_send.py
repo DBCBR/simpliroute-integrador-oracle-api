@@ -128,15 +128,18 @@ erros_total = 0
 erros_hoje = 0
 envios_total = 0
 envios_hoje = 0
+falhas_atualizacao_total = 0
+falhas_atualizacao_hoje = 0
 data_hoje = (datetime.now(timezone.utc) - timedelta(hours=3)).date()
 
 
 def _rollover_day_if_needed(now_utc3: datetime) -> None:
-    global data_hoje, erros_hoje, envios_hoje
+    global data_hoje, erros_hoje, envios_hoje, falhas_atualizacao_hoje
     if now_utc3.date() != data_hoje:
         data_hoje = now_utc3.date()
         erros_hoje = 0
         envios_hoje = 0
+        falhas_atualizacao_hoje = 0
 
 
 def save_error_stacktrace(exc: Exception, extra_info: dict | None = None) -> str:
@@ -291,7 +294,7 @@ def fetch_records(limit: int, offset: int = 0) -> List[Dict[str, Any]]:
         raise
 
 
-def update_envioroteirizador(id_prescription, id_protocolo) -> None:
+def update_envioroteirizador(id_prescription, id_protocolo, id_simpliroute) -> None:
     global envios_total, envios_hoje
 
     # Calcula data/hora atual em UTC-3
@@ -299,15 +302,21 @@ def update_envioroteirizador(id_prescription, id_protocolo) -> None:
     now_str = now_utc3.strftime("%Y-%m-%d %H:%M:%S")
     try:
         schema = os.getenv("ORACLE_SCHEMA")
+        
         sql = f"""
             UPDATE {schema}.TD_OTIMIZE_ALTSTAT
-            SET DT_ENVIOROTEIRIZADOR = TO_DATE(:dt_envio, 'YYYY-MM-DD HH24:MI:SS')
-            WHERE IDREGISTRO = :id_prescription AND IDREFERENCE = :id_protocolo
+            SET DT_ENVIOROTEIRIZADOR = TO_DATE(:dt_envio, 'YYYY-MM-DD HH24:MI:SS'),
+                IDSIMPLIROUTE = :id_simpliroute
+            WHERE IDREGISTRO = :id_prescription
+              AND IDREFERENCE = :id_protocolo
+              AND IDSIMPLIROUTE IS NOT NULL
         """
+        
         params = {
             "dt_envio": now_str,
             "id_prescription": id_prescription,
             "id_protocolo": id_protocolo,
+            "id_simpliroute": id_simpliroute,
         }
 
         engine = get_engine()
@@ -315,13 +324,34 @@ def update_envioroteirizador(id_prescription, id_protocolo) -> None:
             result = conn.execute(text(sql), params)
 
         if result.rowcount == 0:
-            logger.warning(
-                f"Nenhum registro atualizado em TD_OTIMIZE_ALTSTAT para IDREGISTRO={id_prescription} e IDREFERENCE={id_protocolo}"
+            error_msg = (
+                f"Nenhum registro atualizado em TD_OTIMIZE_ALTSTAT para IDREGISTRO={id_prescription}, "
+                f"IDREFERENCE={id_protocolo}, IDSIMPLIROUTE={id_simpliroute}"
+            )
+            logger.error(error_msg)
+            
+            # Incrementa contador de falhas de atualização
+            dt_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
+            with stats_lock:
+                _rollover_day_if_needed(dt_utc3)
+                falhas_atualizacao_total += 1
+                falhas_atualizacao_hoje += 1
+            
+            # Gera arquivo de log de erro
+            save_error_stacktrace(
+                Exception(error_msg),
+                extra_info={
+                    "id_prescription": id_prescription,
+                    "id_protocolo": id_protocolo,
+                    "id_simpliroute": id_simpliroute,
+                    "tipo": "update_nao_afetou_registros",
+                    "env": {"ORACLE_SCHEMA": schema},
+                },
             )
             return
 
         logger.info(
-            f"Atualizado DT_ENVIOROTEIRIZADOR para IDREGISTRO={id_prescription} e IDREFERENCE={id_protocolo}"
+            f"Atualizado DT_ENVIOROTEIRIZADOR e IDSIMPLIROUTE para IDREGISTRO={id_prescription}, IDREFERENCE={id_protocolo}, IDSIMPLIROUTE={id_simpliroute}"
         )
 
         dt_utc3 = datetime.now(timezone.utc) - timedelta(hours=3)
@@ -415,9 +445,10 @@ def main_loop(stop_event: threading.Event) -> None:
                     # Atualiza DT_ENVIOROTEIRIZADOR se envio foi bem-sucedido
                     id_prescription = record.get("id_prescricao") or record.get("ID_PRESCRICAO")
                     id_protocolo = record.get("id_protocolo") or record.get("ID_PROTOCOLO")
+                    id_simpliroute = "123"
 
                     if id_prescription and id_protocolo:
-                        update_envioroteirizador(id_prescription, id_protocolo)
+                        update_envioroteirizador(id_prescription, id_protocolo, id_simpliroute)
                     else:
                         logger.warning(
                             f"Chaves para update não encontradas: IDPRESCRIPTION={id_prescription}, ID_PROTOCOLO={id_protocolo}"
@@ -485,6 +516,8 @@ async def health_check():
         env_h = envios_hoje
         err_total = erros_total
         err_h = erros_hoje
+        falhas_atualizacao_t = falhas_atualizacao_total
+        falhas_atualizacao_h = falhas_atualizacao_hoje
 
     return JSONResponse(
         {
@@ -494,6 +527,7 @@ async def health_check():
             "ultimos_eventos": ultimos_eventos,
             "envios": {"total": env_total, "hoje": env_h},
             "erros": {"total": err_total, "hoje": err_h},
+            "falhas_atualizacao_registro": {"total": falhas_atualizacao_t, "hoje": falhas_atualizacao_h},
         }
     )
 
