@@ -514,12 +514,21 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             return f"{_normalize_numeric_string(prescricao)}{_normalize_numeric_string(protocolo)}"
         return ""
 
+    def _prefix_notes(notes_value):
+        """Add [A] prefix to notes field."""
+        if not notes_value:
+            return "[A]"
+        notes_str = str(notes_value)
+        if notes_str.startswith("[A]"):
+            return notes_str
+        return f"[A]{notes_str}"
+
     if is_delivery_like:
         reference_value = _delivery_reference() or _get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or ""
     else:
         reference_value = _get("reference") or _get("ID_ATENDIMENTO") or _get("idregistro") or ""
     payload["reference"] = str(reference_value)
-    payload["notes"] = _get("notes") or ""
+    payload["notes"] = _prefix_notes(_get("notes") or "")
 
     # Items: converter para o formato esperado pela API de visits.items
 
@@ -573,7 +582,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             "load_3": float(r.get("load_3") or 0.0),
             "reference": str(r.get("ID_ATENDIMENTO") or r.get("idregistro") or r.get("reference") or ""),
             "quantity_planned": _ceil_quantity(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 1.0, default=1.0),
-            "notes": notes,
+            "notes": _prefix_notes(notes),
         }
 
     # Determine visit type to decide whether to include items.
@@ -685,7 +694,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                         "load_3": float(r.get("load_3") or 0.0),
                         "reference": r.get("reference") or r.get("ref") or "",
                         "quantity_planned": _ceil_quantity(r.get("quantity_planned") or r.get("qty") or r.get("quantidade") or 0.0, default=0.0),
-                        "notes": r.get("notes", ""),
+                        "notes": _prefix_notes(r.get("notes", "")),
                     }
 
                 # adapt item shape to SimpliRoute expected fields
@@ -750,7 +759,7 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     ordered["contact_phone"] = payload.get("contact_phone")
     ordered["contact_email"] = payload.get("contact_email")
     ordered["reference"] = payload.get("reference")
-    ordered["notes"] = payload.get("notes") or ""
+    ordered["notes"] = _prefix_notes(payload.get("notes") or "")
     ordered["skills_required"] = []
     ordered["skills_optional"] = []
     ordered["tags"] = []
@@ -897,9 +906,9 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     # Format notes as "ESPECIALIDADE - TIPOVISITA" (omit separator when missing)
     if esp_val and tipovisita_val:
-        payload["notes"] = f"{esp_val} - {tipovisita_val}"
+        payload["notes"] = _prefix_notes(f"{esp_val} - {tipovisita_val}")
     else:
-        payload["notes"] = esp_val or tipovisita_val or ""
+        payload["notes"] = _prefix_notes(esp_val or tipovisita_val or "")
 
     # Safety: if the properties or visit_type explicitly indicate a medical/nursing visit,
     # ensure we do NOT include items even if rows were present upstream.
@@ -949,11 +958,11 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
                 break
 
     if final_esp and final_tip:
-        ordered["notes"] = f"{final_esp} - {final_tip}"
+        ordered["notes"] = _prefix_notes(f"{final_esp} - {final_tip}")
     elif final_esp:
-        ordered["notes"] = final_esp
+        ordered["notes"] = _prefix_notes(final_esp)
     elif final_tip:
-        ordered["notes"] = final_tip
+        ordered["notes"] = _prefix_notes(final_tip)
 
     # If this is delivery dataset, prefer explicit delivery visit_type and notes
     if is_entrega_view or is_delivery_like:
@@ -961,12 +970,12 @@ def build_visit_payload(record: Dict[str, Any]) -> Dict[str, Any]:
             # deliveries usam tags específicas (rota/admissao/acrescimo)
             ordered["visit_type"] = _infer_delivery_visit_type("rota_log")
             if delivery_note_lines:
-                ordered["notes"] = "\n".join(delivery_note_lines)
+                ordered["notes"] = _prefix_notes("\n".join(delivery_note_lines))
             else:
                 delivery_note = _get("TIPO_ENTREGA") or _get("TIPO") or final_esp or final_tip or "ENTREGA"
-                ordered["notes"] = str(delivery_note)
+                ordered["notes"] = _prefix_notes(str(delivery_note))
         except Exception:
-            ordered["notes"] = ordered.get("notes") or "ENTREGA"
+            ordered["notes"] = _prefix_notes(ordered.get("notes") or "ENTREGA")
 
     # Normalize strings throughout the ordered payload (NFC)
     ordered = _normalize_obj(ordered)
